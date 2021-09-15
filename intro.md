@@ -2,7 +2,7 @@
 
 openpilot is a software that produces serial messages (CAN) to accelerate and steer a car given some camera streams, existing serial messages from the car, and sensor data. In addition to the real-time messages, openpilot produces logs that are used to train machine learning models at a later date.
 
-The goal of this introduction is to introduce you to understand the moving pieces of openpilot, and help you understand how they work together to create these outputs.
+The goal of this introduction is to introduce you to the moving pieces of openpilot, and help you understand how they work together to create these outputs.
 
 ![conceptual_schematic](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/conceptual_schematic.png)
 
