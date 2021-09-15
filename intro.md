@@ -4,6 +4,7 @@ openpilot is a software that produces serial messages (CAN) to accelerate and st
 
 The goal of this introduction is to introduce you to understand the moving pieces of openpilot, and help you understand how they work together to create these outputs.
 
+![conceptual_schematic](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/conceptual_schematic.png)
 
 ## Talking the Car: 101
 
@@ -24,4 +25,6 @@ Here is the heart of the code. On each loop of the controlsd process, the car co
 
 For example, one manufacturer might put the steering angle on message id 0x30 at bytes 3 and 4, while another manufacturer describes steering angle on message id 0xe4 at byte 2 and 3. 
 
-On the next line, `pm.send()` publishes the `can_send` messages on the `sendcan` topic, in Cap'n'proto format. The boardd process subscribes to `sendcan` topic and turns messages 
+On the next line, `pm.send()` publishes the `can_send` messages on the `sendcan` topic, in Cap'n'proto format. The boardd process subscribes to `sendcan` topic and turns messages...
+
+![pub_sub](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/conceptual_schematic.png)
