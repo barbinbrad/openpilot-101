@@ -6,7 +6,7 @@ The goal of this introduction is to introduce you to understand the moving piece
 
 ![conceptual_schematic](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/conceptual_schematic.png)
 
-## Talking the Car: 101
+## Talking to the Car: 101
 
 Modern vehicles communicate using CAN messaging, a broadcast protocol that allows many computers to talk together in a way that is tolerant to noisy environments. From the openpilot perspective, the good thing about the CAN protocol is that it is inherently trusting, allowing messages to be spoofed. The bad thing about the CAN protocol is that each manufacturer creates their own dictionary of CAN message IDs and data definition. 
 
@@ -29,6 +29,7 @@ On the next line, `pm.send()` publishes the `can_send` messages on the `sendcan`
 
 ```cpp
 # selfdrive/boardd/boardd.cc
+
 while (panda->connected) {
     Message * msg = subscriber->receive();
 
@@ -41,7 +42,7 @@ while (panda->connected) {
 }
 ```
 
-The boardd process subscribes to `sendcan` topic and turns messages Cap'n Proto messages into CAN messages, using the [panda](https://github.com/commaai/panda) firmware, which is wired directly to the vehicle's CAN network with a vehicle-specific wiring harness. The `can_send` method uses the Comma hardware's microcontroller and CAN transceivers to send messages directly to the vehicles computers. 
+The boardd process subscribes to the `sendcan` topic and turns Cap'n Proto messages into CAN messages, using the [panda](https://github.com/commaai/panda) hardware and firmware. The `can_send` method uses the Comma hardware's microcontroller and CAN transceivers to send CAN messages directly to the vehicles CAN network. 
 
 ## Architecture: 101
 
