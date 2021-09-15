@@ -46,4 +46,8 @@ The boardd process subscribes to the `sendcan` topic and turns Cap'n Proto messa
 
 ## Architecture: 101
 
+So far, we've mentioned two processes: controlsd and boardd. You may have noticed that processes end with the letter "d". That's a tribute to linux background daemons. This section will give a brief overview of the processes and how they communicate with each other.
+
+
+
 ![pub_sub](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/pub_sub.png)
