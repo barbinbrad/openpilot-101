@@ -25,6 +25,16 @@ Here is the heart of the code. On each loop of the controlsd process, the car co
 
 For example, one manufacturer might put the steering angle on message id 0x30 at bytes 3 and 4, while another manufacturer describes steering angle on message id 0xe4 at byte 2 and 3. 
 
-On the next line, `pm.send()` publishes the `can_send` messages on the `sendcan` topic, in Cap'n'proto format. The boardd process subscribes to `sendcan` topic and turns messages...
+On the next line, `pm.send()` publishes the `can_send` messages on the `sendcan` topic, in Cap'n Proto format. 
+
+```cpp
+# selfdrive/boardd/boardd.cc
+panda->can_send(event.getSendcan());
+```
+panda->can_send(event.getSendcan());
+
+The boardd process subscribes to `sendcan` topic and turns messages Cap'n Proto messages into CAN messages, using the Panda firmware, which is wired directly to the vehicles, CAN network with a vehicle-specific wiring harness.
+
+## Architecture: 101
 
 ![pub_sub](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/pub_sub.png)
