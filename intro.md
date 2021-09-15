@@ -29,11 +29,19 @@ On the next line, `pm.send()` publishes the `can_send` messages on the `sendcan`
 
 ```cpp
 # selfdrive/boardd/boardd.cc
-panda->can_send(event.getSendcan());
-```
-panda->can_send(event.getSendcan());
+while (panda->connected) {
+    Message * msg = subscriber->receive();
 
-The boardd process subscribes to `sendcan` topic and turns messages Cap'n Proto messages into CAN messages, using the Panda firmware, which is wired directly to the vehicles, CAN network with a vehicle-specific wiring harness.
+    capnp::FlatArrayMessageReader cmsg(aligned_buf.align(msg));
+    cereal::Event::Reader event = cmsg.getRoot<cereal::Event>();
+
+    panda->can_send(event.getSendcan());
+
+    delete msg;
+}
+```
+
+The boardd process subscribes to `sendcan` topic and turns messages Cap'n Proto messages into CAN messages, using the [panda](https://github.com/commaai/panda) firmware, which is wired directly to the vehicle's CAN network with a vehicle-specific wiring harness. The `can_send` method uses the Comma hardware's microcontroller and CAN transceivers to send messages directly to the vehicles computers. 
 
 ## Architecture: 101
 
