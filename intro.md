@@ -27,4 +27,4 @@ For example, one manufacturer might put the steering angle on message id 0x30 at
 
 On the next line, `pm.send()` publishes the `can_send` messages on the `sendcan` topic, in Cap'n'proto format. The boardd process subscribes to `sendcan` topic and turns messages...
 
-![pub_sub](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/conceptual_schematic.png)
+![pub_sub](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/pub_sub.png)
