@@ -12,7 +12,7 @@ Modern vehicles communicate using CAN messaging, a broadcast protocol that allow
 
 For example, one manufacturer might put the steering angle on message ID 0x30 at bytes 3 and 4, while another manufacturer describes steering angle on message ID 0xe4 at byte 2 and 3.
 
-So even after openpilot has figured what the acceleration and steering angle should be, there is still much work to be done to turn it into a CAN message that will be understood by that particular make/model vehicle. 
+So even after openpilot has figures out what the acceleration and steering angle *should be*, there is still much work to be done to turn it into a CAN message that will be understood by that particular make/model vehicle. 
 
 Below is the heart of the code for turning calculations, `CC`, into manufacturer-specific CAN messages using the car interface, `CI`, which contains information about the make/model of the car:
 
@@ -50,7 +50,7 @@ while (panda->connected) {
 }
 ```
 
-The **boardd** process subscribes to the `sendcan` topic and turns Cap'n Proto messages into physical CAN messages, through the [panda](https://github.com/commaai/panda) hardware and firmware. The `panda->can_send` method writes to the hardware's microcontroller, which use CAN transceivers to send CAN messages directly to the vehicles CAN network.
+The **boardd** process subscribes to the `sendcan` topic and turns Cap'n Proto messages into physical CAN messages through the [panda](https://github.com/commaai/panda) hardware and firmware. The `panda->can_send` method writes to the hardware's microcontroller, which use CAN transceivers to send CAN messages directly to the vehicles CAN network.
 
 To recap: **controlsd** is a process that takes many inputs and turns them into a list of CAN message for a particular make/model vehicle, and **boardd** is a process that talks to the vehicle through the panda interface to send (and receive) physical CAN messages. The two proccesses communicate with each other using a pub-sub messaging framework called [cereal](https://github.com/commaai/panda) where `pm` denotes that a process is a topic publisher, and `sm` denotes that a process is a topic subscriber. 
 
