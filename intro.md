@@ -2,13 +2,13 @@
 
 **openpilot** is a software that produces serial messages (CAN Messages) to change the acceleration and steering angle of a car given some camera streams, existing serial messages from the car, and sensor data. In addition to the real-time messages, openpilot produces logs that are used to train machine learning models at a later date.
 
-The goal of this introduction is to introduce you to the moving pieces of openpilot, and help you understand how they work together to create these outputs. To understand how new cars are added to openpilot, check out energee's [blog post](https://medium.com/@energee/add-support-for-your-car-to-comma-ai-openpilot-3d2da8c12647). 
+The goal of this introduction is to introduce you to the moving pieces of openpilot, and help you understand how they work together to create these outputs. This guide is written for software developers. To understand how new cars are added to openpilot, check out energee's [blog post](https://medium.com/@energee/add-support-for-your-car-to-comma-ai-openpilot-3d2da8c12647). 
 
 ![conceptual_schematic](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/conceptual_schematic.png)
 
 ## CAN Messages
 
-Modern vehicles communicate using CAN messaging, a broadcast protocol that allows many computers to talk together in a way that is tolerant to noisy environments. From the openpilot perspective, the good thing about the CAN protocol is that it is inherently trusting, allowing messages to be spoofed. The bad thing about the CAN protocol is that each manufacturer creates their own dictionary of CAN message IDs and data definition. 
+Modern vehicles communicate using CAN messaging, a broadcast protocol that allows many computers to talk together in a way that is tolerant to noisy environments. From the openpilot perspective, the good thing about the CAN protocol is that it is inherently trusting, allowing messages to be spoofed. The bad thing about the CAN protocol is that each manufacturer creates their own dictionary of CAN message IDs and data definitions. 
 
 For example, one manufacturer might put the steering angle on message ID 0x30 at bytes 3 and 4, while another manufacturer describes steering angle on message ID 0xe4 at byte 2 and 3.
 
@@ -52,7 +52,7 @@ while (panda->connected) {
 
 The **boardd** process subscribes to the `sendcan` topic and turns Cap'n Proto messages into physical CAN messages through the [panda](https://github.com/commaai/panda) hardware and firmware. The `panda->can_send` method writes to the hardware's microcontroller, which use CAN transceivers to send CAN messages directly to the vehicles CAN network.
 
-To recap: **controlsd** is a process that takes many inputs and turns them into a list of CAN message for a particular make/model vehicle, and **boardd** is a process that talks to the vehicle through the panda interface to send (and receive) physical CAN messages. The two proccesses communicate with each other using a pub-sub messaging framework called [cereal](https://github.com/commaai/panda) where `pm` denotes that a process is a topic publisher, and `sm` denotes that a process is a topic subscriber. 
+To recap: **controlsd** is a process that takes many inputs and turns them into a list of CAN message for a particular make/model vehicle, and **boardd** is a process that talks to the vehicle through the panda interface to send (and receive) physical CAN messages. The two proccesses communicate with each other using a pub-sub messaging framework called [cereal](https://github.com/commaai/cereal) where `pm` denotes that a process is a topic publisher, and `sm` denotes that a process is a topic subscriber. 
 
 This separation of concerns into purposeful processes that communicate through pub-sub messaging will be covered in greater detail in the next section.
 
@@ -62,7 +62,7 @@ So far, we've mentioned two processes: **controlsd** and **boardd**. This sectio
 
 - **camerad**: interfaces with available camera hardware to generate images, which are encoded as videos 
 - **sensorsd**: interfaces with available sensor hardware to generate data from the hardware's IMU
-- **boardd**: interfaces with vehicle's CAN network and panda's ublox GPS chip to send and generate
+- **boardd**: interfaces with vehicle's CAN network and panda's ublox GPS chip to send and generate data
 - **ubloxd**: converts raw GPS messages into realtime GPS data
 - **locationd**: combines inputs from sensors, gps, and model into realtime estimates for movement and position
 - **modeld**: transforms camera images into estimates for movement, future position, and the location of other vehicles
@@ -77,7 +77,7 @@ In the openpilot process map below, processes are represented by nodes, and the 
 
 ![pub_sub](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/pub_sub.png)
 
-In the cereal pub-sub model, any process can subscribe to any topic, but each topic can only have one publisher. Messages are stored and exchanged in [Cap'n Proto](https://capnproto.org/) format, an extremely fast and lightweight way to send objects (like JSON) as binary (like ProtoBufs). The structure of every message is contained in the [log.capnp](https://github.com/commaai/cereal/blob/master/log.capnp) file in the cereal sub-module.
+In the cereal pub-sub framework, any process can subscribe to any topic, but each topic can only have one publisher. Messages are stored and exchanged in [Cap'n Proto](https://capnproto.org/) format, an extremely fast and lightweight way to send objects (like JSON) as binary (like ProtoBufs). The structure of every message is contained in the [log.capnp](https://github.com/commaai/cereal/blob/master/log.capnp) file in the cereal sub-module.
 
 
 ## Cereal
@@ -93,13 +93,13 @@ struct Event {
   union {
     ...
     # ********** openpilot daemon msgs **********
-    can @5 :List(CanData);
+    can @5 :List(CanData); # CAN received
     controlsState @7 :ControlsState;
     sensorEvents @11 :List(SensorEventData);
     pandaState @12 :PandaState;
     radarState @13 :RadarState;
     liveTracks @16 :List(LiveTracks);
-    sendcan @17 :List(CanData);
+    sendcan @17 :List(CanData); # CAN sent
     liveCalibration @19 :LiveCalibrationData;
     carState @22 :Car.CarState;
     ...
@@ -119,7 +119,7 @@ struct CanData {
 }
 ```
 
-In python or C++, accessing a property `foo` from Cap'n Proto structs is as easy as calling `getFoo()`. Each struct has a `Reader` class that is read-only, and a `Builder` class that is writable. So, for example, to get the top level `Event` struct, we called:
+In C++, accessing a property `foo` from Cap'n Proto structs is as easy as calling `getFoo()`. Each struct has a `Reader` class that is read-only, and a `Builder` class that is writable. To get the top-level `Event` struct, we called use a special method called `getRoot()`, which is cast as the root type `cereal::Event`:
 
 ```cpp
 // selfdrive/boardd/boardd.cc
@@ -150,7 +150,29 @@ void Panda::can_send(capnp::List<cereal::CanData>::Reader can_data_list) {
 }
 ```
 
-Publishing a cap'n'proto messages is even easier. Here we see how **paramsd** uses cereal's messaging library to publish a message  on the `liveParameters` topic every time it receives a message on the `liveLocationKalman` topic:
+In python, reading Cap'n Proto messages is much less verbose. Here we read the deviceState messages:
+
+```python
+# selfdrive/controlsd/controlsd.py
+import cereal.messaging as messaging
+...
+sm = messaging.SubMaster(['deviceState', ...)
+...
+
+while True:
+    # Create events for battery, temperature, disk space, and memory
+    if EON and sm['deviceState'].batteryPercent < 1 and sm['deviceState'].chargingError:
+      # at zero percent battery, while discharging, OP should not allowed
+      events.add(EventName.lowBattery)
+    if sm['deviceState'].thermalStatus >= ThermalStatus.red:
+      events.add(EventName.overheat)
+    if sm['deviceState'].freeSpacePercent < 7 and not SIMULATION:
+      # under 7% of space free no enable allowed
+      events.add(EventName.outOfSpace)
+
+```
+
+Publishing a Cap'n'proto messages is just as easy. Here we see how **paramsd** uses cereal's messaging library to publish a message  on the `liveParameters` topic every time it receives a message on the `liveLocationKalman` topic:
 
 ```python
 # selfdrive/locationd/paramsd.py
@@ -185,7 +207,7 @@ while True:
       pm.send('liveParameters', msg)
 ```
 
-Notice how the Cap'n Proto struct from cereal matches the message properties, but not all properties are required, such as `gyroBasis`. In the case that properties are not defined, they will be set to 0:
+Notice how the Cap'n Proto struct from cereal matches the message properties, but not all properties are required, such as `gyroBasis`. In the case that properties are not defined, they will be set to `0` or `false`:
 
 ```capnpn
 # cereal/log.capnp
@@ -213,21 +235,482 @@ Now that we understand what the major processes are and how the talk to each oth
 
 ## Logs
 
-<!--https://github.com/commaai/openpilot/blob/377fe84948c069c3f00824c06e0ae40f2aa2616e/selfdrive/loggerd/loggerd.cc#L352-->
+There are two types of log files in openpilot. Cap'n Proto logs, and videos. The two are used in conjuction to replay drives, diagnose problems, train machine learning models, and reverse engineer CAN message definitions. In this section, we'll focus on the Cap'n Proto logs and leave video for later in our introduction. So what is a Cap'n Proto log file?
 
-## Panda
+To answer that question, we'll return our `Event` struct from cereal's [log.capnp](https://github.com/commaai/cereal/blob/master/log.capnp) file.
 
+```capnp
+struct Event {
+  logMonoTime @0 :UInt64;  # nanoseconds
+  valid @63 :Bool = true
+  ...
+
+  union {
+    # *********** log metadata ***********
+    initData @1 :InitData;
+    ...
+    gpsNMEA @3 :GPSNMEAData;
+    can @5 :List(CanData); 
+    controlsState @7 :ControlsState;
+    sensorEvents @11 :List(SensorEventData);
+    ...
+  }
+}
+```
+
+The important thing to understand here is that `union` is like an `enum`, meaning that each instance of `Event` contains exactly one of the message definitions contained in the `union`. Thus, each `Event` has a `logMonoTime`, a `valid` property, and a message.
+
+Now that we know what the `Event` struct is, let's have a look at 20ms of decompressed log data [converted](https://github.com/commaai/log_reader_js) to JSON. You may notice that the log is just a series of `Event` instances:
+
+```json
+{
+   "LogMonoTime":"31132127675929",
+   "Valid":true,
+   "SensorEvents":[
+      {
+         "Version":104,
+         "Sensor":5,
+         "Type":16,
+         "Timestamp":"31132121969660",
+         "UncalibratedDEPRECATED":false,
+         "GyroUncalibrated":{
+            "V":[
+               -0.0488739013671875,
+               0,
+               0.0122222900390625,
+               -0.05096435546875,
+               0.00665283203125,
+               0.013031005859375
+            ],
+            "Status":0
+         },
+         "Source":0
+      },
+      {
+         "Version":104,
+         "Sensor":1,
+         "Type":1,
+         "Timestamp":"31132121969660",
+         "UncalibratedDEPRECATED":false,
+         "Acceleration":{
+            "V":[
+               9.889938354492188,
+               0.772552490234375,
+               0.090179443359375
+            ],
+            "Status":3
+         },
+         "Source":0
+      },
+      {
+         "Version":104,
+         "Sensor":4,
+         "Type":4,
+         "Timestamp":"31132121969660",
+         "UncalibratedDEPRECATED":false,
+         "Gyro":{
+            "V":[
+               0.0020904541015625,
+               -0.00665283203125,
+               -0.0008087158203125
+            ],
+            "Status":3
+         },
+         "Source":0
+      }
+   ]
+},
+{
+   "LogMonoTime":"31132130390148",
+   "Valid":true,
+   "Can":[
+      {
+         "Address":404,
+         "BusTime":23453,
+         "Dat":"EQAXAAKEWKM=",
+         "Src":1
+      },
+      {
+         "Address":405,
+         "BusTime":23573,
+         "Dat":"EQAAAAaEWJE=",
+         "Src":1
+      },
+      {
+         "Address":452,
+         "BusTime":47969,
+         "Dat":"BK4XCFAA/+0=",
+         "Src":0
+      },
+      ...
+   ]
+},
+{
+   "LogMonoTime":"31132135487491",
+   "Valid":true,
+   "RoadCameraState":{
+      "FrameId":1,
+      "EncodeId":0,
+      "TimestampEof":"31132109621000",
+      "FrameLength":5419,
+      "IntegLines":5408,
+      "GlobalGain":510,
+      "LensPos":635,
+      "LensSag":0,
+      "LensErr":0,
+      "LensTruePos":400,
+      "Image":"",
+      "GainFrac":1,
+      "FocusVal":[
+         
+      ],
+      "FocusConf":[
+         
+      ],
+      "SharpnessScore":[
+         
+      ],
+      "RecoverState":0,
+      "FrameType":0,
+      "TimestampSof":"0",
+      "Transform":[
+         1,
+         0,
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         1
+      ],
+      "AndroidCaptureResult":{
+         "Sensitivity":0,
+         "FrameDuration":"0",
+         "ExposureTime":"0",
+         "RollingShutterSkew":"0",
+         "ColorCorrectionTransform":[
+            
+         ],
+         "ColorCorrectionGains":[
+            
+         ],
+         "DisplayRotation":0
+      }
+   }
+},
+{
+   "LogMonoTime":"31132140527491",
+   "Valid":true,
+   "Can":[
+      {
+         "Address":865,
+         "BusTime":24666,
+         "Dat":"AEcAAJYAAIM=",
+         "Src":2
+      },
+      {
+         "Address":865,
+         "BusTime":53093,
+         "Dat":"AEcAAJYAAIM=",
+         "Src":0
+      },
+      {
+         "Address":442,
+         "BusTime":28957,
+         "Dat":"ERN9+QAd0kw=",
+         "Src":1
+      },
+      ...
+   ]
+},
+{
+   "LogMonoTime":"31132142300252",
+   "Valid":true,
+   "GpsLocationExternal":{
+      "Flags":1,
+      "Latitude":34.092524499999996,
+      "Longitude":-118.32247489999999,
+      "Altitude":64.429,
+      "Speed":0.008999999612569809,
+      "BearingDeg":0,
+      "Accuracy":0.621999979019165,
+      "Timestamp":"1575969208300",
+      "Source":6,
+      "VNED":[
+         -0.00800000037997961,
+         -0.004000000189989805,
+         0.0010000000474974513
+      ],
+      "VerticalAccuracy":0.7590000033378601,
+      "BearingAccuracyDeg":93.0456771850586,
+      "SpeedAccuracy":0.17900000512599945
+   }
+},
+{
+   "LogMonoTime":"31132141781762",
+   "Valid":true,
+   "UbloxRaw":"tWIBB1wAPLZHDOMHDAoJDRz36gMAAAvl5hEDAeoMU2x5uT0bUhSt+wAAYXsBAG4CAAD3AgAA+P////z///8BAAAACQAAAAAAAACzAAAA+PmNAKUAAAASGSY7AAAAAAAAAACXnQ=="
+},
+{
+   "LogMonoTime":"31132147796294",
+   "Valid":true,
+   "SensorEvents":[
+      {
+         "Version":104,
+         "Sensor":5,
+         "Type":16,
+         "Timestamp":"31132131796320",
+         "UncalibratedDEPRECATED":false,
+         "GyroUncalibrated":{
+            "V":[
+               -0.0525360107421875,
+               0.0158538818359375,
+               0.0122222900390625,
+               -0.05096435546875,
+               0.00665283203125,
+               0.013031005859375
+            ],
+            "Status":0
+         },
+         "Source":0
+      },
+      {
+         "Version":104,
+         "Sensor":1,
+         "Type":1,
+         "Timestamp":"31132131796320",
+         "UncalibratedDEPRECATED":false,
+         "Acceleration":{
+            "V":[
+               9.748748779296875,
+               0.8108367919921875,
+               0.01361083984375
+            ],
+            "Status":3
+         },
+         "Source":0
+      },
+      {
+         "Version":104,
+         "Sensor":4,
+         "Type":4,
+         "Timestamp":"31132131796320",
+         "UncalibratedDEPRECATED":false,
+         "Gyro":{
+            "V":[
+               -0.0015716552734375,
+               0.0092010498046875,
+               -0.0008087158203125
+            ],
+            "Status":3
+         },
+         "Source":0
+      },
+      {
+         "Version":104,
+         "Sensor":5,
+         "Type":16,
+         "Timestamp":"31132141622981",
+         "UncalibratedDEPRECATED":false,
+         "GyroUncalibrated":{
+            "V":[
+               -0.0537567138671875,
+               0.00244140625,
+               0.013427734375,
+               -0.05096435546875,
+               0.00665283203125,
+               0.013031005859375
+            ],
+            "Status":0
+         },
+         "Source":0
+      },
+      {
+         "Version":104,
+         "Sensor":1,
+         "Type":1,
+         "Timestamp":"31132141622981",
+         "UncalibratedDEPRECATED":false,
+         "Acceleration":{
+            "V":[
+               9.954544067382812,
+               0.87066650390625,
+               0.094970703125
+            ],
+            "Status":3
+         },
+         "Source":0
+      },
+      {
+         "Version":104,
+         "Sensor":4,
+         "Type":4,
+         "Timestamp":"31132141622981",
+         "UncalibratedDEPRECATED":false,
+         "Gyro":{
+            "V":[
+               -0.0027923583984375,
+               -0.00421142578125,
+               0.000396728515625
+            ],
+            "Status":3
+         },
+         "Source":0
+      }
+   ]
+}
+
+```
+
+Phew! That's a lot data for 20ms. What you're seeing is that every message sent between processes is saved to a raw log file, called an `rlog`. This file is uploaded to comma server's (with the user's permission) when the device is able to connect to WiFi.
+
+With so much data being saved and sent, the name of the game is compression. There are two main ways that openpilot solves the data compression problem. The first is through the data format, and the second is through sampling rates.
+
+When it comes to data format, openpilot uses Cap'n Proto for it's small in-memory footprint, language interoperability, and lightning speed. For compression, we use the `bzip` algorithm, which favors smaller size over speed.
+
+Let's now take a look at how the **loggerd** process saves all messages to disk in bz2 format:
+
+```cpp
+// selfdrive/loggerd/loggerd.cc
+
+Poller * poller = Poller::create();
+
+  // iterate through all the services (topics)
+  for (const auto& it : services) {
+    // subscribe to every topic
+    SubSocket * sock = SubSocket::create(s.ctx, it.name);
+    poller->registerSocket(sock);
+    ...
+  }
+
+  // poll for new messages on all topics
+  for (auto sock : poller->poll(1000)) {
+      while (msg = sock->receive(true)) {
+          // decide whether the message should be logged in the qlog
+          const bool in_qlog = qs.freq != -1 && (qs.counter++ % qs.freq == 0);
+          // save the message to disk
+          logger_log(&s.logger, (uint8_t *)msg->getData(), msg->getSize(), in_qlog);
+      }
+  }
+
+```
+
+The **loggerd** process subscribes to every message, and calls `logger_log` on the message data, which eventually uses [libbz2](https://docs.oracle.com/cd/E88353_01/html/E37842/libbz2-3.html) to compress the byte array message into bz2 format, and write it to disk.  
+
+```cpp
+// selfdrive/loggerd/logger.h
+
+inline void write(void* data, size_t size) {
+    ...
+    do {
+        ...
+        BZ2_bzWrite(&bzerror, bz_file, data, size);
+    } while (bzerror == BZ_IO_ERROR && errno == EINTR);
+    ...
+}
+
+```
+
+We've just described how an `rlog.bz2` file is created. But the careful reader may have noticed something called a `qlog`. When **loggerd** calls `logger_log` it passes an argument called `in_qlog`. The `qlog.bz2` file is a subset of `rlog.bz2`. Instead of saving all messages, the `qlog` file samples every  n-th message as defined by the cereal services file:
+
+```python
+# cereal/services.py
+
+services = {
+  # service: (should_log, frequency, qlog decimation (optional))
+  "sensorEvents": (True, 100., 100),
+  "gpsNMEA": (True, 9.),
+  "deviceState": (True, 2., 1),
+  "can": (True, 100.),
+  "controlsState": (True, 100., 10),
+  "pandaState": (True, 2., 1),
+  "radarState": (True, 20., 5),
+  "roadEncodeIdx": (True, 20., 1),
+  "liveTracks": (True, 20.),
+  "sendcan": (True, 100.),
+  "logMessage": (True, 0.),
+  "liveCalibration": (True, 4., 4),
+  ...
+}
+```
+
+The services specifies whether the messages from that service should be logged, how often they are sent per second, and the sampling rate for `qlog`, called decimation.
+
+Let's look at a few examples to see how this works. The `deviceState` message is sent 2 times per second (Hz), and every message is saved to the `qlog`. The `radarState` message is sent 20 times per second, and one out of every 5 messages is saved to the `qlog`. The `can` message is sent 100 times per second, but no messages are saved to the `qlog`. The purpose of the `qlog` is for streaming real-time data for users with a cellular data connection. Because cellular data is more expensive, the data resource is limited.
+
+Before moving on to the next section, let's revisit the code for deciding whether a message should be in `qlog`: 
+
+```cpp
+// selfdrive/loggerd/loggerd.cc
+
+  // iterate through the services
+  for (const auto& it : services) {
+    // subscribe to all messages topics
+    ...
+    // store the message sampling rates for qlog
+    qlog_states[sock] = {.counter = 0, .freq = it.decimation};
+  }
+
+  // poll for new messages on all topics
+  for (auto sock : poller->poll(1000)) {
+
+      QlogState &qs = qlog_states[sock];
+
+      while (msg = sock->receive(true)) {
+          // decide whether the message should be logged in the qlog
+          const bool in_qlog = qs.freq != -1 && (qs.counter++ % qs.freq == 0);
+          // save the message to disk
+          logger_log(&s.logger, (uint8_t *)msg->getData(), msg->getSize(), in_qlog);
+
+          // check to see if we need a new log file
+          rotate_if_needed();
+      }
+  }
+
+```
+
+Now, that we understand how `rlog.bz2` and `qlog.bz2` files are created, we need to give some thought to how to break up the files into mananageble chunks. To do this, we use the function `rotate_if_needed()` seen in the code above.
+
+The purpose of the `rotate_if_needed()` function is to break log files up into 60-second chunks, called segments. Because all log files are named `rlog.bz2` or `qlog.bz2`, we need some means of differentiating between them. To accomplish this, we use folders with the following naming convention `{LOG_ROOT}/{ROUTE}--{SEGMENT}/`.
+
+`{LOG_ROOT}` is defined as:
+```cpp
+// selfdrive/hardware.h
+
+inline std::string log_root() {
+    return Hardware::PC() ? HOME + "/.comma/media/0/realdata" : "/data/media/0/realdata";
+}
+```
+
+`{ROUTE}` is a date/timestamp, `2021-09-16--19-49-40` which is generated by the following function:
+```cpp
+// selfdrive/loggerd/logger.cc
+
+std::string logger_get_route_name() {
+  char route_name[64] = {'\0'};
+  time_t rawtime = time(NULL);
+  struct tm timeinfo;
+  localtime_r(&rawtime, &timeinfo);
+  strftime(route_name, sizeof(route_name), "%Y-%m-%d--%H-%M-%S", &timeinfo);
+  return route_name;  
+}
+```
+
+Finally, `{SEGMENT}` is a counter variable, converted to string. The function `rotate_if_needed()` eventually increments the segment number when a new segment is needed. By default, segments are 60 seconds long, such that segment 42 represents the 42nd minute of the drive. Thus, a valid path for an `rlog` of the 42nd minute of a drive on 9/16/2021 could be: `/data/media/0/realdata/2021-09-16--19-49-40--42/rlog.bz2`.
+
+
+## Persistent Parameters
+
+## Car Interfaces
 
 ## Kalman Filters & PID Loops
 
+## Video
 
 ## Machine Learning
 
+## Panda
 
-## Fingerprinting
-
-
-
-
+## Operating System
  
-
