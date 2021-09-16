@@ -1,6 +1,6 @@
 # Intro to openpilot
 
-openpilot is a software that produces serial messages (CAN Messages) to change the acceleration and steering angle of a car given some camera streams, existing serial messages from the car, and sensor data. In addition to the real-time messages, openpilot produces logs that are used to train machine learning models at a later date.
+**openpilot** is a software that produces serial messages (CAN Messages) to change the acceleration and steering angle of a car given some camera streams, existing serial messages from the car, and sensor data. In addition to the real-time messages, openpilot produces logs that are used to train machine learning models at a later date.
 
 The goal of this introduction is to introduce you to the moving pieces of openpilot, and help you understand how they work together to create these outputs. To understand how new cars are added to openpilot, check out energee's [blog post](https://medium.com/@energee/add-support-for-your-car-to-comma-ai-openpilot-3d2da8c12647). 
 
@@ -58,10 +58,10 @@ This separation of concerns into purposeful processes that communicate through p
 
 ## Inter-Process Communication
 
-So far, we've mentioned two processes: **controlsd** and **boardd**. This section will give a brief overview of the major processes and how they communicate with each other. You may have noticed that processes all end with the letter d. That's a nod to linux daemons, background processes that have no user control. Similarly, openpilot's procceses run without any direct user intervention. 
+So far, we've mentioned two processes: **controlsd** and **boardd**. This section will give a brief overview of the major processes and how they communicate with each other. You may have noticed that processes all end with the letter d. That's a nod to linux daemons, background processes that have no user control. Similarly, openpilot's processes run without any direct user intervention. 
 
-- **camerad**: interfaces with available camera hardware to generate images 
-- **sensorsd**: interfaces with available sensor hardware to generate data
+- **camerad**: interfaces with available camera hardware to generate images, which are encoded as videos 
+- **sensorsd**: interfaces with available sensor hardware to generate data from the hardware's IMU
 - **boardd**: interfaces with vehicle's CAN network and panda's ublox GPS chip to send and generate
 - **ubloxd**: converts raw GPS messages into realtime GPS data
 - **locationd**: combines inputs from sensors, gps, and model into realtime estimates for movement and position
@@ -106,7 +106,7 @@ struct Event {
   }
 }
 ```
-Notice how both `can` and `sendcan` both use the type `List(CanData)`. `List` is a primative type to Cap'n Proto, and `CanData` is a struct that's also defined in log.capnp. The `CanData` struct is composed exclusively of primative types, so no further definition is needed:
+Notice how both `can` and `sendcan` use the type `List(CanData)`. `List` is a primative type to Cap'n Proto, and `CanData` is a struct that's also defined in log.capnp. The `CanData` struct is composed exclusively of primative types, so no further definition is needed:
 
 ```capnp
 # cereal/log.capnp
@@ -115,7 +115,7 @@ struct CanData {
   address @0 :UInt32; # 11 or 29-bit address
   busTime @1 :UInt16; 
   dat     @2 :Data; # up to 8 bytes of data
-  src     @3 :UInt8; # which bus
+  src     @3 :UInt8; # 0-3 or 128-131
 }
 ```
 
@@ -145,6 +145,8 @@ void Panda::can_send(capnp::List<cereal::CanData>::Reader can_data_list) {
         uint32_t address = cmsg.getAddress();
         uint8_t src = cmsg.getSrc();
     }
+    ...
+    usb_bulk_write(3, (unsigned char*)send.data(), send.size(), 5);
 }
 ```
 
@@ -207,16 +209,16 @@ struct LiveParametersData {
 
 ```
 
-Now that we understand what the major processes are and how the talk to each other, lets take a look at how data is persisted for time travel and machine learning.
+Now that we understand what the major processes are and how the talk to each other, lets take a look at how data is persisted for time travel debugging and machine learning.
 
 ## Logs
 
 <!--https://github.com/commaai/openpilot/blob/377fe84948c069c3f00824c06e0ae40f2aa2616e/selfdrive/loggerd/loggerd.cc#L352-->
 
-## Kalman Filters & PID Loops
-
-
 ## Panda
+
+
+## Kalman Filters & PID Loops
 
 
 ## Machine Learning
@@ -225,7 +227,7 @@ Now that we understand what the major processes are and how the talk to each oth
 ## Fingerprinting
 
 
-## OpenDBC
+
 
  
 
