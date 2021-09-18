@@ -6,7 +6,11 @@ The goal of this introduction is to introduce you to the moving pieces of openpi
 
 ![conceptual_schematic](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/conceptual_schematic.png)
 
-## CAN Messages
+## Part I: Data
+
+This introduction is broken up into three parts. The first part concerns the data and how it moves. The second part will describe the interfaces that support different cars and hardware. And the third part will describe how many signals are used to produce an output.
+
+### CAN Messages
 
 Modern vehicles communicate using CAN messaging, a broadcast protocol that allows many computers to talk together in a way that is tolerant to noisy environments. From the openpilot perspective, the good thing about the CAN protocol is that it is inherently trusting, allowing messages to be spoofed. The bad thing about the CAN protocol is that each manufacturer creates their own dictionary of CAN message IDs and data definitions. 
 
@@ -15,7 +19,6 @@ For example, one manufacturer might put the steering angle on message ID 0x30 at
 So even after openpilot figures out what the acceleration and steering angle *should be*, there is still much work to be done to turn it into a CAN message that will be understood by that particular make/model vehicle. 
 
 Below is the heart of the code for turning calculations, `CC`, into manufacturer-specific CAN messages using the car interface, `CI`, which contains information about the make/model of the car:
-
 
 ```python
 # selfdrive/controls/controlsd.py
@@ -56,7 +59,7 @@ To recap: **controlsd** is a process that takes many inputs and turns them into 
 
 This separation of concerns into purposeful processes that communicate through pub-sub messaging will be covered in greater detail in the next section.
 
-## Inter-Process Communication
+### Inter-Process Communication
 
 So far, we've mentioned two processes: **controlsd** and **boardd**. This section will give a brief overview of the major processes and how they communicate with each other. You may have noticed that processes all end with the letter d. That's a nod to linux daemons, background processes that have no user control. Similarly, openpilot's processes run without any direct user intervention. 
 
@@ -80,7 +83,7 @@ In the openpilot process map below, processes are represented by nodes, and the 
 In the cereal pub-sub framework, any process can subscribe to any topic, but each topic can only have one publisher. Messages are stored and exchanged in [Cap'n Proto](https://capnproto.org/) format, an extremely fast and lightweight way to send objects (like JSON) as binary (like ProtoBufs). The structure of every message is contained in the [log.capnp](https://github.com/commaai/cereal/blob/master/log.capnp) file in the cereal sub-module.
 
 
-## Cereal
+### Cereal
 
 In the log.capnp file, a single `Event` struct contains all the topic message definitions:
 
@@ -153,7 +156,8 @@ void Panda::can_send(capnp::List<cereal::CanData>::Reader can_data_list) {
 In python, reading Cap'n Proto messages is much less verbose. Here we read the deviceState messages:
 
 ```python
-# selfdrive/controlsd/controlsd.py
+# selfdrive/controls/controlsd.py
+
 import cereal.messaging as messaging
 ...
 sm = messaging.SubMaster(['deviceState', ...)
@@ -233,7 +237,7 @@ struct LiveParametersData {
 
 Now that we understand what the major processes are and how the talk to each other, lets take a look at how data is persisted for time travel debugging and machine learning.
 
-## Logs
+### Logs
 
 There are two types of log files in openpilot. Cap'n Proto logs, and videos. The two are used in conjuction to replay drives, diagnose problems, train machine learning models, and reverse engineer CAN message definitions. In this section, we'll focus on the Cap'n Proto logs and leave video for later in our introduction. So what is a Cap'n Proto log file?
 
@@ -698,13 +702,21 @@ std::string logger_get_route_name() {
 Finally, `SEGMENT` is a counter variable, converted to string. The function `rotate_if_needed()` eventually increments the segment number when a new segment is needed. By default, segments are 60 seconds long, such that segment 42 represents the 42nd minute of the drive. Thus, a valid path for an `rlog` of the 42nd minute of a drive on 9/16/2021 could be: `/data/media/0/realdata/2021-09-16--19-49-40--42/rlog.bz2`.
 
 
-## Persistent Parameters
+### Persistent Parameters
 
 While messages provide access to real-time state, and logs give us the ability to look back in time, sometimes we need to persist global data between proccesses. For example, we don't want to ask the user whether to upload logs every time we restart the device or connect to WiFi. It's better to save the user selection as a persistent parameter.
 
-For a lot of developers, persistent key/value storage might sound like a job for a database. But remote databases are not an option because the hardware cannot always access the internet, and local databases like [SQLite](https://sqlite.org) contain unnecessary complexity for our simple needs. In order to run many processes at near real-time speeds, everything must be optimized for speed and efficiency. 
+For a lot of developers, persistent key/value storage might sound like a job for a database. But remote databases are not an option because the hardware cannot always access the internet, and local databases like sqlite contain unnecessary complexity for our simple needs. In order to run many processes at near real-time speeds, everything must be optimized for speed and efficiency. 
 
-Thus, the method employed by openpilot for persisting key/value data is to use the filesystem, using a library called **params**. Let's take a look at our keys:
+Thus, the method employed by openpilot for persisting key/value data is to use the filesystem, using a library called **params**. Params stores key/values on the Linux filesystem here:
+
+```cpp
+inline std::string params() {
+  return Hardware::PC() ? HOME + "/.comma/params" : "/data/params";
+}
+```
+
+We haven't talked about `Hardware::PC()` yet, but you can probably guess that it is a method to identify whether we're using a PC (without Android) or not. Great! Now let's take a look at some of the keys, and how often the policies for when to clear the values:
 
 ```cpp
 // selfdrive/common/params.cc
@@ -732,12 +744,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EnableWideCamera", CLEAR_ON_MANAGER_START},
     {"DoUninstall", CLEAR_ON_MANAGER_START},
     {"DongleId", PERSISTENT},
-    {"GitDiff", PERSISTENT},
-    {"GitBranch", PERSISTENT},
-    {"GitCommit", PERSISTENT},
-    {"GitRemote", PERSISTENT},
-    {"GithubSshKeys", PERSISTENT},
-    {"GithubUsername", PERSISTENT},
+    ...
     {"GsmRoaming", PERSISTENT},
     {"HardwareSerial", PERSISTENT},
     {"HasAcceptedTerms", PERSISTENT},
@@ -752,52 +759,12 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"IsTakingSnapshot", CLEAR_ON_MANAGER_START},
     {"IsUpdateAvailable", CLEAR_ON_MANAGER_START},
     {"UploadRaw", PERSISTENT},
-    {"LastAthenaPingTime", CLEAR_ON_MANAGER_START},
-    {"LastGPSPosition", PERSISTENT},
-    {"LastUpdateException", PERSISTENT},
-    {"LastUpdateTime", PERSISTENT},
-    {"LiveParameters", PERSISTENT},
-    {"MapboxToken", PERSISTENT | DONT_LOG},
-    {"NavDestination", CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_OFF},
-    {"NavSettingTime24h", PERSISTENT},
-    {"OpenpilotEnabledToggle", PERSISTENT},
-    {"PandaFirmware", CLEAR_ON_MANAGER_START | CLEAR_ON_PANDA_DISCONNECT},
-    {"PandaFirmwareHex", CLEAR_ON_MANAGER_START | CLEAR_ON_PANDA_DISCONNECT},
-    {"PandaDongleId", CLEAR_ON_MANAGER_START | CLEAR_ON_PANDA_DISCONNECT},
-    {"PandaHeartbeatLost", CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_OFF},
-    {"Passive", PERSISTENT},
-    {"PrimeRedirected", PERSISTENT},
-    {"RecordFront", PERSISTENT},
-    {"RecordFrontLock", PERSISTENT},  // for the internal fleet
-    {"ReleaseNotes", PERSISTENT},
-    {"ShouldDoUpdate", CLEAR_ON_MANAGER_START},
-    {"SubscriberInfo", PERSISTENT},
-    {"SshEnabled", PERSISTENT},
-    {"TermsVersion", PERSISTENT},
-    {"Timezone", PERSISTENT},
-    {"TrainingVersion", PERSISTENT},
-    {"UpdateAvailable", CLEAR_ON_MANAGER_START},
-    {"UpdateFailedCount", CLEAR_ON_MANAGER_START},
-    {"Version", PERSISTENT},
-    {"VisionRadarToggle", PERSISTENT},
-    {"Offroad_ChargeDisabled", CLEAR_ON_MANAGER_START | CLEAR_ON_PANDA_DISCONNECT},
-    {"Offroad_ConnectivityNeeded", CLEAR_ON_MANAGER_START},
-    {"Offroad_ConnectivityNeededPrompt", CLEAR_ON_MANAGER_START},
-    {"Offroad_TemperatureTooHigh", CLEAR_ON_MANAGER_START},
-    {"Offroad_PandaFirmwareMismatch", CLEAR_ON_MANAGER_START | CLEAR_ON_PANDA_DISCONNECT},
-    {"Offroad_InvalidTime", CLEAR_ON_MANAGER_START},
-    {"Offroad_IsTakingSnapshot", CLEAR_ON_MANAGER_START},
-    {"Offroad_NeosUpdate", CLEAR_ON_MANAGER_START},
-    {"Offroad_UpdateFailed", CLEAR_ON_MANAGER_START},
-    {"Offroad_HardwareUnsupported", CLEAR_ON_MANAGER_START},
-    {"Offroad_UnofficialHardware", CLEAR_ON_MANAGER_START},
-    {"Offroad_NvmeMissing", CLEAR_ON_MANAGER_START},
-    {"ForcePowerDown", CLEAR_ON_MANAGER_START},
+    ...
     {"JoystickDebugMode", CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_OFF},
 };
 ```
 
-The **params** library has two primary methods: `Params().get(key)` and `Params().put(key, value)`. The `Params().get(key)` is blocking, and `Params.put(key)` writes atomically. Let's take a look at how this is used to cache the expensive operation of determining the car firmware and VIN number:
+The **params** library has two primary methods: `Params().get(key)` and `Params().put(key, value)`. The `Params().get(key)` is blocking, and `Params.put(key)` [writes atomically](https://lwn.net/Articles/457667/). Let's take a look at how these methods are used to cache the expensive operation of determining the car firmware and VIN number:
 
 ```python
 # selfdrive/car/car_helpers.py
@@ -805,7 +772,7 @@ The **params** library has two primary methods: `Params().get(key)` and `Params(
 # try to load the car params from the cache
 cached_params = Params().get("CarParamsCache")
 if cached_params is not None:
-    # convert the cap'n proto struct into a python object
+    # use the cap'n proto struct to convert the cached bytes into a python object
     cached_params = car.CarParams.from_bytes(cached_params)
 
 if cached_params is not None and len(cached_params.carFw) > 0 and cached_params.carVin is not VIN_UNKNOWN:
@@ -827,9 +794,9 @@ In the example above, we check our persistent storage for the `carParamsCache` k
 In addition to `get` and `put`, the **params** library has the methods `get_bool` and `put_bool`, which are used for true/false values. In C++, the methods are `getBool` and `putBool`. Here we see how the `ControlsReady` param is used to tell the **boardd** process to wait for the **controlsd** process to finish loading the car parameters:
 
 ```python
-# selfdrive/controlsd/controlsd.py
+# selfdrive/controls/controlsd.py
 
-# after loading the car interface
+# after fingerprinting and loading the car interface
 Params().put_bool("ControlsReady", True)
 ```
 
@@ -840,7 +807,6 @@ p = Params()
 // wait for the controls ready param to be set
 while (true) {
     ...
-
     if (p.getBool("ControlsReady")) {
       params = p.get("CarParams");
       if (params.size() > 0) break;
@@ -848,7 +814,42 @@ while (true) {
     util::sleep_for(100);
   }
 ```
-## Car Interfaces
+
+This code is called when the **boardd** process starts. It waits for the `CarParams` to be set so that it can configure the panda's "safety hooks" according to the make/model of the car. Recall from list of keys that `ControlsReady` has a policy of `CLEAR_ON_MANAGER_START | CLEAR_ON_PANDA_DISCONNECT | CLEAR_ON_IGNITION_ON`. That means that any time the device, car, or panda is disconnected, the parameter will be cleared. 
+
+In the next section, we'll learn about the fingerprinting process, car interfaces, and manufacturer-specific safety hooks.
+
+## Part II: Interfaces
+
+In the first section, we looked at the mechanics of how data transported in openpilot. In this section, we'll try to understand how the software can support self-driving in hundreds of different cars.
+
+### Fingerprints, Interfaces, and Safety Hooks
+
+Let's revisit the first lines of code we looked at, where `CI.apply(CC)` creates the make/model specific CAN messages on each loop of the process:
+
+```python
+# selfdrive/controls/controlsd.py
+
+# send car controls over can
+can_sends = CI.apply(CC)
+pm.send('sendcan', can_list_to_can_capnp(can_sends))
+```
+
+In this section we'll try to understand what is `CI`, why do we need it, and how is it defined?
+
+To accomplish that, let's step through the code starting with the the declaration of `CI`. 
+
+```python
+# selfdrive/controls/controlsd.py
+
+CI, CP = get_car(can_sock, pm.sock['sendcan'])
+```
+
+This line of code is called on the intialization of **controlsd**. It calls the function `get_car` and passes the CAN Rx topic subscribtion `can_sock` and the CAN Tx topic publisher `sendcan`. This allows the `get_car` function...
+
+## Panda
+
+## Hardware
 
 ## Kalman Filters & PID Loops
 
@@ -856,7 +857,6 @@ while (true) {
 
 ## Machine Learning
 
-## Panda
-
 ## Operating System
  
+ ## APIs
