@@ -708,12 +708,14 @@ For a lot of developers, persistent key/value storage might sound like a job for
 Thus, the method employed by openpilot for persisting key/value data is to use the filesystem, using a library called **params**. Params stores key/values on the Linux filesystem here:
 
 ```cpp
+// selfdrive/hardware.h
+
 inline std::string params() {
   return Hardware::PC() ? HOME + "/.comma/params" : "/data/params";
 }
 ```
 
-We haven't talked about `Hardware::PC()` yet, but you can probably guess that it is a method to identify whether we're using a PC (without Android) or not. Great! Now let's take a look at some of the keys, and how often the policies for when to clear the values:
+We haven't talked about `Hardware::PC()` yet, but you can probably guess that it is a method to identify whether we're using a PC (without Android) or not. Great! Now let's take a look at some of the keys that we'll persist and the policies for when to clear the values:
 
 ```cpp
 // selfdrive/common/params.cc
@@ -761,7 +763,7 @@ std::unordered_map<std::string, uint32_t> keys = {
 };
 ```
 
-The **params** library has two primary methods: `Params().get(key)` and `Params().put(key, value)`. The `Params().get(key)` is blocking, and `Params.put(key)` [writes atomically](https://lwn.net/Articles/457667/). Let's take a look at how these methods are used to cache the expensive operation of determining the car firmware and VIN number:
+The **params** library has two primary methods: `Params().get(key)` and `Params().put(key, value)`. The `Params().get(key)` method is blocking, and `Params.put(key, value)` [writes atomically](https://lwn.net/Articles/457667/). Let's take a look at how these methods are used to cache the expensive operation of determining the car firmware and VIN number:
 
 ```python
 # selfdrive/car/car_helpers.py
@@ -788,7 +790,7 @@ Params().put("CarVin", vin)
 
 In the example above, we check our persistent storage for the `carParamsCache` key. If the value is present, we avoid doing the expensive operation of 'fingerprinting' the CAN messages to determine the car's firmware version.
 
-In addition to `get` and `put`, the **params** library has the methods `get_bool` and `put_bool`, which are used for true/false values. In C++, the methods are `getBool` and `putBool`. Here we see how the `ControlsReady` param is used to tell the **boardd** process to wait for the **controlsd** process to finish loading the car parameters:
+In addition to `get` and `put`, the **params** library has the methods `get_bool` and `put_bool`, which are used for true/false values. In C++, the methods are `getBool` and `putBool`. In the next example, we see how the `ControlsReady` param is used to tell the **boardd** process to wait for the **controlsd** process to finish loading the car parameters:
 
 ```python
 # selfdrive/controls/controlsd.py
@@ -819,7 +821,7 @@ In the next section, we'll learn about the fingerprinting process, car interface
 
 ## Fingerprints, Interfaces, and Safety Hooks
 
-So far, we've looked at the mechanics of how data transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's revisit the first lines of code we looked at. Recall that `CI.apply(CC)` transforms calculations for acceleration and steering angle the make/model specific CAN messages on each loop of the process:
+So far, we've looked at the mechanics of how data is transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's revisit the first lines of code we looked at. Recall that `CI.apply(CC)` transforms calculations for acceleration and steering angle the make/model specific CAN messages on each loop of the process:
 
 ```python
 # selfdrive/controls/controlsd.py
@@ -829,7 +831,7 @@ can_sends = CI.apply(CC)
 pm.send('sendcan', can_list_to_can_capnp(can_sends))
 ```
 
-In this section we'll try to understand what is `CI`, why do we need it, and how is it defined? To accomplish that, let's step through the code starting with the the declaration of `CI`. 
+In this section we'll try to understand what is the car interface, `CI`? Why do we need it? And how is it defined? To accomplish that, let's step through the code starting with the the declaration of `CI`. 
 
 ```python
 # selfdrive/controls/controlsd.py
@@ -837,7 +839,7 @@ In this section we'll try to understand what is `CI`, why do we need it, and how
 CI, CP = get_car(can_sock, pm.sock['sendcan'])
 ```
 
-This line of code is called on the intialization of **controlsd**. It calls the function `get_car` and passes the CAN Rx topic subscribtion `can_sock` and the CAN Tx topic publisher `sendcan`. This allows the `get_car` function...
+This line of code is called on the intialization of **controlsd**. It calls the function `get_car` and passes the CAN Rx topic subscribtion `can_sock` and the CAN Tx topic publisher `sendcan`. This allows the `get_car` function to send and receive CAN messages through the panda interface.
 
 ## Panda
 
