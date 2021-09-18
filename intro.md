@@ -6,11 +6,8 @@ The goal of this introduction is to introduce you to the moving pieces of openpi
 
 ![conceptual_schematic](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/conceptual_schematic.png)
 
-## Part I: Data
 
-This introduction is broken up into three parts. The first part concerns the data and how it moves. The second part will describe the interfaces that support different cars and hardware. And the third part will describe how many signals are used to produce an output.
-
-### CAN Messages
+## CAN Messages
 
 Modern vehicles communicate using CAN messaging, a broadcast protocol that allows many computers to talk together in a way that is tolerant to noisy environments. From the openpilot perspective, the good thing about the CAN protocol is that it is inherently trusting, allowing messages to be spoofed. The bad thing about the CAN protocol is that each manufacturer creates their own dictionary of CAN message IDs and data definitions. 
 
@@ -59,7 +56,7 @@ To recap: **controlsd** is a process that takes many inputs and turns them into 
 
 This separation of concerns into purposeful processes that communicate through pub-sub messaging will be covered in greater detail in the next section.
 
-### Inter-Process Communication
+## Inter-Process Communication
 
 So far, we've mentioned two processes: **controlsd** and **boardd**. This section will give a brief overview of the major processes and how they communicate with each other. You may have noticed that processes all end with the letter d. That's a nod to linux daemons, background processes that have no user control. Similarly, openpilot's processes run without any direct user intervention. 
 
@@ -83,7 +80,7 @@ In the openpilot process map below, processes are represented by nodes, and the 
 In the cereal pub-sub framework, any process can subscribe to any topic, but each topic can only have one publisher. Messages are stored and exchanged in [Cap'n Proto](https://capnproto.org/) format, an extremely fast and lightweight way to send objects (like JSON) as binary (like ProtoBufs). The structure of every message is contained in the [log.capnp](https://github.com/commaai/cereal/blob/master/log.capnp) file in the cereal sub-module.
 
 
-### Cereal
+## Cereal
 
 In the log.capnp file, a single `Event` struct contains all the topic message definitions:
 
@@ -237,7 +234,7 @@ struct LiveParametersData {
 
 Now that we understand what the major processes are and how the talk to each other, lets take a look at how data is persisted for time travel debugging and machine learning.
 
-### Logs
+## Logs
 
 There are two types of log files in openpilot. Cap'n Proto logs, and videos. The two are used in conjuction to replay drives, diagnose problems, train machine learning models, and reverse engineer CAN message definitions. In this section, we'll focus on the Cap'n Proto logs and leave video for later in our introduction. So what is a Cap'n Proto log file?
 
@@ -702,7 +699,7 @@ std::string logger_get_route_name() {
 Finally, `SEGMENT` is a counter variable, converted to string. The function `rotate_if_needed()` eventually increments the segment number when a new segment is needed. By default, segments are 60 seconds long, such that segment 42 represents the 42nd minute of the drive. Thus, a valid path for an `rlog` of the 42nd minute of a drive on 9/16/2021 could be: `/data/media/0/realdata/2021-09-16--19-49-40--42/rlog.bz2`.
 
 
-### Persistent Parameters
+## Persistent Parameters
 
 While messages provide access to real-time state, and logs give us the ability to look back in time, sometimes we need to persist global data between proccesses. For example, we don't want to ask the user whether to upload logs every time we restart the device or connect to WiFi. It's better to save the user selection as a persistent parameter.
 
@@ -819,13 +816,10 @@ This code is called when the **boardd** process starts. It waits for the `CarPar
 
 In the next section, we'll learn about the fingerprinting process, car interfaces, and manufacturer-specific safety hooks.
 
-## Part II: Interfaces
 
-In the first section, we looked at the mechanics of how data transported in openpilot. In this section, we'll try to understand how the software can support self-driving in hundreds of different cars.
+## Fingerprints, Interfaces, and Safety Hooks
 
-### Fingerprints, Interfaces, and Safety Hooks
-
-Let's revisit the first lines of code we looked at, where `CI.apply(CC)` creates the make/model specific CAN messages on each loop of the process:
+So far, we've looked at the mechanics of how data transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's revisit the first lines of code we looked at. Recall that `CI.apply(CC)` transforms calculations for acceleration and steering angle the make/model specific CAN messages on each loop of the process:
 
 ```python
 # selfdrive/controls/controlsd.py
@@ -835,9 +829,7 @@ can_sends = CI.apply(CC)
 pm.send('sendcan', can_list_to_can_capnp(can_sends))
 ```
 
-In this section we'll try to understand what is `CI`, why do we need it, and how is it defined?
-
-To accomplish that, let's step through the code starting with the the declaration of `CI`. 
+In this section we'll try to understand what is `CI`, why do we need it, and how is it defined? To accomplish that, let's step through the code starting with the the declaration of `CI`. 
 
 ```python
 # selfdrive/controls/controlsd.py
