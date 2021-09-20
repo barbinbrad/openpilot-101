@@ -27,7 +27,7 @@ pm.send('sendcan', can_list_to_can_capnp(can_sends))
 
 On each loop of the **controlsd** process, the car control message, `CC`, represents the desired setpoints of the car (acceleration, steering angle, etc). The  `CI.apply` method turns these setpoints into make/model specific CAN messages. 
 
-On the next line, `pm.send()` publishes the `can_send` messages on the `sendcan` topic, in Cap'n Proto format. The next snippet of code describes what happens to the message next. Don't worry if it doesn't make sense yet. 
+On the next line, the `pm.send` function publishes the `can_send` messages on the `sendcan` topic, in Cap'n Proto format. The next snippet of code describes what happens to the message next. Don't worry if it doesn't make sense yet. 
 
 
 ```cpp
@@ -119,7 +119,7 @@ struct CanData {
 }
 ```
 
-In C++, accessing a property `foo` from Cap'n Proto structs is as easy as calling `getFoo()`. Each struct has a `Reader` class that is read-only, and a `Builder` class that is writable. To get the top-level `Event` struct, we called use a special method called `getRoot()`, which is cast as the root type `cereal::Event`:
+In C++, accessing a property `foo` from Cap'n Proto structs is as easy as calling `getFoo()`. If `foo` is a struct, `getFoo()` returns a `Foo::Reader`, a read-only class. Otherwise, if `foo` is a primative, `getFoo()` returns the primative value. To get the top-level `Event` struct, we called use a special method called `getRoot()`, which is cast as the root type `cereal::Event`:
 
 ```cpp
 // selfdrive/boardd/boardd.cc
@@ -130,7 +130,7 @@ cereal::Event::Reader event = cmsg.getRoot<cereal::Event>();
 panda->can_send(event.getSendcan());
 ```
 
-Calling `event.getSendcan()` therefore returns a `List<cereal::CanData>::Reader`, but calling `getFoo()` on a primative type, returns a primative value (instead of a ::Reader class).
+Calling `event.getSendcan()` therefore returns a `List<cereal::CanData>::Reader`, because `List` is primative but `CanData` a custom struct. Then calling `getAddress()` on the `Reader`, returns a value.
 
 ```cpp
 // selfdrive/boardd/panda.cc
@@ -669,9 +669,9 @@ Before moving on to the next section, let's revisit the code for deciding whethe
 
 ```
 
-Now, that we understand how `rlog.bz2` and `qlog.bz2` files are created, we need to give some thought to how to break up the files into mananageble chunks. To do this, we use the function `rotate_if_needed()` seen in the code above.
+Now, that we understand how `rlog.bz2` and `qlog.bz2` files are created, we need to give some thought to how to break up the files into mananageble chunks. To do this, we use the function `rotate_if_needed` seen in the code above.
 
-The purpose of the `rotate_if_needed()` function is to break log files up into 60-second chunks, called segments. Because all log files are named `rlog.bz2` or `qlog.bz2`, we need some means of differentiating between them. To accomplish this, we use folders with the following naming convention `${LOG_ROOT}/${ROUTE}--${SEGMENT}/`.
+The purpose of the `rotate_if_needed` function is to break log files up into 60-second chunks, called segments. Because all log files are named `rlog.bz2` or `qlog.bz2`, we need some means of differentiating between them. To accomplish this, we use folders with the following naming convention `${LOG_ROOT}/${ROUTE}--${SEGMENT}/`.
 
 `LOG_ROOT` is defined as:
 ```cpp
@@ -696,7 +696,7 @@ std::string logger_get_route_name() {
 }
 ```
 
-Finally, `SEGMENT` is a counter variable, converted to string. The function `rotate_if_needed()` eventually increments the segment number when a new segment is needed. By default, segments are 60 seconds long, such that segment 42 represents the 42nd minute of the drive. Thus, a valid path for an `rlog` of the 42nd minute of a drive on 9/16/2021 could be: `/data/media/0/realdata/2021-09-16--19-49-40--42/rlog.bz2`.
+Finally, `SEGMENT` is a counter variable, converted to string. The function `rotate_if_needed` eventually increments the segment number when a new segment is needed. By default, segments are 60 seconds long, such that segment 42 represents the 42nd minute of the drive. Thus, a valid path for an `rlog` of the 42nd minute of a drive on 9/16/2021 could be: `/data/media/0/realdata/2021-09-16--19-49-40--42/rlog.bz2`.
 
 
 ## Persistent Parameters
@@ -788,7 +788,7 @@ else:
 Params().put("CarVin", vin)
 ```
 
-In the example above, we check our persistent storage for the `carParamsCache` key. If the value is present, we avoid doing the expensive operation of 'fingerprinting' the CAN messages to determine the car's firmware version.
+In the example above, we check our persistent storage for the `carParamsCache` key. If the value is present, we avoid doing the expensive `get_vin` and `get_fw_versions` function calls.
 
 In addition to `get` and `put`, the **params** library has the methods `get_bool` and `put_bool`, which are used for true/false values. In C++, the methods are `getBool` and `putBool`. In the next example, we see how the `ControlsReady` param is used to tell the **boardd** process to wait for the **controlsd** process to finish loading the car parameters:
 
@@ -821,7 +821,38 @@ In the next section, we'll learn about the fingerprinting process, car interface
 
 ## Fingerprints, Interfaces, and Safety Hooks
 
-So far, we've looked at the mechanics of how data is transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's revisit the first lines of code we looked at. Recall that `CI.apply(CC)` transforms calculations for acceleration and steering angle into make/model specific CAN messages on each loop of the process:
+So far, we've looked at the mechanics of how data is transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's start by defining what a fingerprint is.
+
+In openpilot, a *fingerprint* is a dictionary of CAN message IDs and data length (in bytes). Now suppose there are only two cars (XTRAIL and LEAF) in the universe. And suppose that each car can have two different possible fingerprints (depending on some manufacturing variability):
+
+```python
+# selfdrive/car/nissan/values.py
+fingerprints = {
+  CAR.XTRAIL: [
+    {
+      2: 5, 42: 6, 346: 6, 347: 5, 348: 8, 349: 7, 361: 8, 386: 8, 389: 8, 397: 8, 398: 8, 403: 8, 520: 2, 523: 6, 548: 8, 645: 8, 658: 8, 665: 8, 666: 8, 674: 2, 682: 8, 683: 8, 689: 8, 723: 8, 758: 3, 768: 2, 783: 3, 851: 8, 855: 8, 1041: 8, 1055: 2, 1104: 4, 1105: 6, 1107: 4, 1108: 8, 1111: 4, 1227: 8, 1228: 8, 1247: 4, 1266: 8, 1273: 7, 1342: 1, 1376: 6, 1401: 8, 1474: 2, 1497: 3, 1821: 8, 1823: 8, 1837: 8, 2015: 8, 2016: 8, 2024: 8
+    },
+    {
+      2: 5, 42: 6, 346: 6, 347: 5, 348: 8, 349: 7, 361: 8, 386: 8, 389: 8, 397: 8, 398: 8, 403: 8, 520: 2, 523: 6, 527: 1, 548: 8, 637: 4, 645: 8, 658: 8, 665: 8, 666: 8, 674: 2, 682: 8, 683: 8, 689: 8, 723: 8, 758: 3, 768: 6, 783: 3, 851: 8, 855: 8, 1041: 8, 1055: 2, 1104: 4, 1105: 6, 1107: 4, 1108: 8, 1111: 4, 1227: 8, 1228: 8, 1247: 4, 1266: 8, 1273: 7, 1342: 1, 1376: 6, 1401: 8, 1474: 8, 1497: 3, 1534: 6, 1792: 8, 1821: 8, 1823: 8, 1837: 8, 1872: 8, 1937: 8, 1953: 8, 1968: 8, 2015: 8, 2016: 8, 2024: 8
+    },
+  ],
+  CAR.LEAF: [
+    {
+      2: 5, 42: 6, 264: 3, 361: 8, 372: 8, 384: 8, 389: 8, 403: 8, 459: 7, 460: 4, 470: 8, 520: 1, 569: 8, 581: 8, 634: 7, 640: 8, 644: 8, 645: 8, 646: 5, 658: 8, 682: 8, 683: 8, 689: 8, 724: 6, 758: 3, 761: 2, 783: 3, 852: 8, 853: 8, 856: 8, 861: 8, 944: 1, 976: 6, 1008: 7, 1011: 7, 1057: 3, 1227: 8, 1228: 8, 1261: 5, 1342: 1, 1354: 8, 1361: 8, 1459: 8, 1477: 8, 1497: 3, 1549: 8, 1573: 6, 1821: 8, 1837: 8, 1856: 8, 1859: 8, 1861: 8, 1864: 8, 1874: 8, 1888: 8, 1891: 8, 1893: 8, 1906: 8, 1947: 8, 1949: 8, 1979: 8, 1981: 8, 2016: 8, 2017: 8, 2021: 8, 643: 5, 1792: 8, 1872: 8, 1937: 8, 1953: 8, 1968: 8, 1988: 8, 2000: 8, 2001: 8, 2004: 8, 2005: 8, 2015: 8
+    },
+    # 2020 Leaf SV Plus
+    {
+      2: 5, 42: 8, 264: 3, 361: 8, 372: 8, 384: 8, 389: 8, 403: 8, 459: 7, 460: 4, 470: 8, 520: 1, 569: 8, 581: 8, 634: 7, 640: 8, 643: 5, 644: 8, 645: 8, 646: 5, 658: 8, 682: 8, 683: 8, 689: 8, 724: 6, 758: 3, 761: 2, 772: 8, 773: 6, 774: 7, 775: 8, 776: 6, 777: 7, 778: 6, 783: 3, 852: 8, 853: 8, 856: 8, 861: 8, 943: 8, 944: 1, 976: 6, 1008: 7, 1009: 8, 1010: 8, 1011: 7, 1012: 8, 1013: 8, 1019: 8, 1020: 8, 1021: 8, 1022: 8, 1057: 3, 1227: 8, 1228: 8, 1261: 5, 1342: 1, 1354: 8, 1361: 8, 1402: 8, 1459: 8, 1477: 8, 1497: 3, 1549: 8, 1573: 6, 1821: 8, 1837: 8
+    },
+  ],
+}
+```
+
+In the fingerprint dictionaries, the key is the message ID, and the value is the data length. Suppose, for example, that we don't know what kind of car we have. So we start listening to CAN messages from the car, and we receive a message ID 2 with a length of 5 bytes. Given the information provided above, any of the four fingerprints could be valid. But suppose we receive a message ID 264 with length 3. Now we can eliminate both fingerprints from `CAR.XTRAIL` because niether of the fingerprints contains message ID 264. Similarly if we receive message 42 with length 8, we can eliminate the first `CAR.LEAF` fingerprint. If, after listening to many more messages, the second `CAR.LEAF` fingerprint has not been eliminated in this way, we can conclude that the car is a Nissan Leaf.
+
+We use this conclusion to load correct the CAN Dictionaries (DBCs), some important information about the geometry and featureset of the car (accessed through the interface's `get_params` method), and functions for reading and writing make/model-specific CAN messages (reading through carstate and writing through carcontroller). Every make of car contains a manufactuer-specific, `CarInterface`, `CarState`, and `CarController`, which can be found in the `selfdrive/car/<name>` directory. When needed, these functions provide differentiation between the vehicle's model.
+
+Now that we have a basic grasp on fingerprinting, let's revisit the first lines of code we looked at. Recall that `CI.apply(CC)` transforms calculations for acceleration and steering angle into make/model specific CAN messages on each loop of the process:
 
 ```python
 # selfdrive/controls/controlsd.py
@@ -831,7 +862,7 @@ can_sends = CI.apply(CC)
 pm.send('sendcan', can_list_to_can_capnp(can_sends))
 ```
 
-In this section we'll try to understand what is the car interface, `CI`? Why do we need it? And how is it defined? To accomplish that, let's step through the code starting with the the declaration of `CI`. 
+The car interface `CI` is determined by the `get_car` function, which follows the fingerprinting process of elimination described above.
 
 ```python
 # selfdrive/controls/controlsd.py
@@ -839,53 +870,7 @@ In this section we'll try to understand what is the car interface, `CI`? Why do 
 CI, CP = get_car(can_sock, pm.sock['sendcan'])
 ```
 
-This line of code is called on the intialization of the **controlsd** process. It calls the function `get_car` and passes the CAN Rx topic subscribtion, `can_sock`, and the CAN Tx topic publisher, `sendcan`. This allows the `get_car` function to send and receive CAN messages through the panda interface. 
-
-```python
-def get_car(logcan, sendcan):
-  candidate, fingerprints, vin, car_fw, source, exact_match = fingerprint(logcan, sendcan)
-  ...
-  CarInterface, CarController, CarState = interfaces[candidate]
-  car_params = CarInterface.get_params(candidate, fingerprints, car_fw)
-  car_params.carVin = vin
-  car_params.carFw = car_fw
-  ...
-  return CarInterface(car_params, CarController, CarState), car_params
-```
-
-The `get_car` function generates a `candidate` using the `fingerprint` function. The `candidate` is used to decide which `CarInterface`, `CarController`, and `CarState` to select from the `selfdrive/car/<name>` directory. 
-
-```python
-# attempt fingerprint on both bus 0 and 1
-def fingerprint(logcan, sendcan):
-  candidate_cars = {i: all_legacy_fingerprint_cars() for i in [0, 1]}  
-  frame = 0
-  
-  while not done:
-    # get a set of can messages from the "can" topic
-    a = get_one_can(logcan)
-    # iterate over the messages
-    for can in a.can:
-      if can.src in range(0, 4):
-        finger[can.src][can.address] = len(can.dat)
-        for b in candidate_cars:
-          if can.src == b and can.address < 0x800:
-            candidate_cars[b] = eliminate_incompatible_cars(can, candidate_cars[b])
-
-    # if we only have one car choice and the time since we got our first
-    # message has elapsed, exit
-    for b in candidate_cars:
-      if len(candidate_cars[b]) == 1 and frame > frame_fingerprint:
-        # fingerprint done
-        car_fingerprint = candidate_cars[b][0]
-
-    # bail if no cars left or we've been waiting for more than 2s
-    failed = (all(len(cc) == 0 for cc in candidate_cars.values()) and frame > frame_fingerprint) or frame > 200
-    succeeded = car_fingerprint is not None
-    done = failed or succeeded
-
-    frame += 1
-```
+The `get_car` function is called on the intialization of the **controlsd** process. It passes the CAN Rx topic subscriber, `can_sock`, and the CAN Tx topic publisher, `sendcan`, which allows the `fingerprint` function to send and receive CAN messages. The goal of the `get_car` function is to dynamically `__import__` the correct `CarInterface`, `CarController`, and `CarState` from the `selfdrive/car` directory:
 
 ```python
 # imports from directory selfdrive/car/<name>/
@@ -896,7 +881,7 @@ def load_interfaces(brand_names):
   ret = {}
   for brand_name in brand_names:
     path = ('selfdrive.car.%s' % brand_name)
-    CarInterface = __import__(path + '.interface').CarInterface
+    CarInterface = __import__(path + '.interface').CarInterface 
     CarState = __import__(path + '.carstate').CarState
     CarController = __import__(path + '.carcontroller').CarController
     
@@ -905,6 +890,57 @@ def load_interfaces(brand_names):
   return ret
 
 ```
+
+The `candidate` from the fingerprinting process is used to select the correct set of `CarInterface`, `CarController`, and `CarState`, a valid `candidate` could be `CAR.COROLLA`, for example:
+
+```python
+def get_car(logcan, sendcan):
+  candidate, fingerprints, vin, car_fw, source, exact_match = fingerprint(logcan, sendcan)
+  ...
+  CarInterface, CarController, CarState = interfaces[candidate]
+  car_params = CarInterface.get_params(candidate, fingerprints, car_fw)
+  ...
+  return CarInterface(car_params, CarController, CarState), car_params
+```
+
+The `get_params` function takes a fingerprint as an input and returns make and model-specific parameters about the car, `CP`. Here is the `get_params` function for all Toyotas. Notice how some things like the `SafetyModel` are the same across all models, while other paramaters like the `steerRatio` differ across models, depending on the `candidate`:
+
+
+```python
+# selfdrive/car/toyota/interface.py
+
+def get_params(candidate, fingerprint=gen_empty_fingerprint(), car_fw=[]): 
+    ret = CarInterfaceBase.get_std_params(candidate, fingerprint)
+
+    ret.carName = "toyota"
+    ret.safetyModel = car.CarParams.SafetyModel.toyota
+
+    ret.steerActuatorDelay = 0.12  # Default delay, Prius has larger delay
+    ret.steerLimitTimer = 0.4
+
+   ...
+   elif candidate == CAR.COROLLA:
+      stop_and_go = False
+      ret.safetyParam = 88
+      ret.wheelbase = 2.70
+      ret.steerRatio = 18.27
+      tire_stiffness_factor = 0.444  # not optimized yet
+      ret.mass = 2860. * CV.LB_TO_KG + STD_CARGO_KG  # mean between normal and hybrid
+      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.2], [0.05]]
+      ret.lateralTuning.pid.kf = 0.00003   # full torque for 20 deg at 80mph means 0.00007818594
+
+    elif candidate == CAR.LEXUS_RX:
+      stop_and_go = True
+      ret.safetyParam = 73
+      ret.wheelbase = 2.79
+      ret.steerRatio = 14.8
+      tire_stiffness_factor = 0.5533
+      ret.mass = 4387. * CV.LB_TO_KG + STD_CARGO_KG
+      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.6], [0.05]]
+      ret.lateralTuning.pid.kf = 0.00006
+   ...
+```
+
 
 ## Panda
 
