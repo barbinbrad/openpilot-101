@@ -2,7 +2,7 @@
 
 **openpilot** is a software that produces serial messages (CAN Messages) to change the acceleration and steering angle of a car given some camera streams, existing serial messages from the car, and sensor data. In addition to the real-time messages, openpilot produces logs that are used to train machine learning models at a later date.
 
-The goal of this introduction is to introduce you to the moving pieces of openpilot, and help you understand how they work together to create these outputs. This guide is written for software developers. To understand how new cars are added to openpilot, check out energee's [blog post](https://medium.com/@energee/add-support-for-your-car-to-comma-ai-openpilot-3d2da8c12647). 
+The goal of this introduction is to introduce you to the moving pieces of openpilot, and help you understand how they work together to create these outputs.  
 
 ![conceptual_schematic](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/conceptual_schematic.png)
 
@@ -130,7 +130,7 @@ cereal::Event::Reader event = cmsg.getRoot<cereal::Event>();
 panda->can_send(event.getSendcan());
 ```
 
-Calling `event.getSendcan()` therefore returns a `List<cereal::CanData>::Reader`, but calling `getFoo()` on a primative type, returns a primative value.
+Calling `event.getSendcan()` therefore returns a `List<cereal::CanData>::Reader`, but calling `getFoo()` on a primative type, returns a primative value (instead of a ::Reader class).
 
 ```cpp
 // selfdrive/boardd/panda.cc
@@ -821,7 +821,7 @@ In the next section, we'll learn about the fingerprinting process, car interface
 
 ## Fingerprints, Interfaces, and Safety Hooks
 
-So far, we've looked at the mechanics of how data is transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's revisit the first lines of code we looked at. Recall that `CI.apply(CC)` transforms calculations for acceleration and steering angle the make/model specific CAN messages on each loop of the process:
+So far, we've looked at the mechanics of how data is transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's revisit the first lines of code we looked at. Recall that `CI.apply(CC)` transforms calculations for acceleration and steering angle into make/model specific CAN messages on each loop of the process:
 
 ```python
 # selfdrive/controls/controlsd.py
@@ -839,7 +839,72 @@ In this section we'll try to understand what is the car interface, `CI`? Why do 
 CI, CP = get_car(can_sock, pm.sock['sendcan'])
 ```
 
-This line of code is called on the intialization of **controlsd**. It calls the function `get_car` and passes the CAN Rx topic subscribtion `can_sock` and the CAN Tx topic publisher `sendcan`. This allows the `get_car` function to send and receive CAN messages through the panda interface.
+This line of code is called on the intialization of the **controlsd** process. It calls the function `get_car` and passes the CAN Rx topic subscribtion, `can_sock`, and the CAN Tx topic publisher, `sendcan`. This allows the `get_car` function to send and receive CAN messages through the panda interface. 
+
+```python
+def get_car(logcan, sendcan):
+  candidate, fingerprints, vin, car_fw, source, exact_match = fingerprint(logcan, sendcan)
+  ...
+  CarInterface, CarController, CarState = interfaces[candidate]
+  car_params = CarInterface.get_params(candidate, fingerprints, car_fw)
+  car_params.carVin = vin
+  car_params.carFw = car_fw
+  ...
+  return CarInterface(car_params, CarController, CarState), car_params
+```
+
+The `get_car` function generates a `candidate` using the `fingerprint` function. The `candidate` is used to decide which `CarInterface`, `CarController`, and `CarState` to select from the `selfdrive/car/<name>` directory. 
+
+```python
+# attempt fingerprint on both bus 0 and 1
+def fingerprint(logcan, sendcan):
+  candidate_cars = {i: all_legacy_fingerprint_cars() for i in [0, 1]}  
+  frame = 0
+  
+  while not done:
+    # get a set of can messages from the "can" topic
+    a = get_one_can(logcan)
+    # iterate over the messages
+    for can in a.can:
+      if can.src in range(0, 4):
+        finger[can.src][can.address] = len(can.dat)
+        for b in candidate_cars:
+          if can.src == b and can.address < 0x800:
+            candidate_cars[b] = eliminate_incompatible_cars(can, candidate_cars[b])
+
+    # if we only have one car choice and the time since we got our first
+    # message has elapsed, exit
+    for b in candidate_cars:
+      if len(candidate_cars[b]) == 1 and frame > frame_fingerprint:
+        # fingerprint done
+        car_fingerprint = candidate_cars[b][0]
+
+    # bail if no cars left or we've been waiting for more than 2s
+    failed = (all(len(cc) == 0 for cc in candidate_cars.values()) and frame > frame_fingerprint) or frame > 200
+    succeeded = car_fingerprint is not None
+    done = failed or succeeded
+
+    frame += 1
+```
+
+```python
+# imports from directory selfdrive/car/<name>/
+interface_names = _get_interface_names()
+interfaces = load_interfaces(interface_names)
+
+def load_interfaces(brand_names):
+  ret = {}
+  for brand_name in brand_names:
+    path = ('selfdrive.car.%s' % brand_name)
+    CarInterface = __import__(path + '.interface').CarInterface
+    CarState = __import__(path + '.carstate').CarState
+    CarController = __import__(path + '.carcontroller').CarController
+    
+    for model_name in brand_names[brand_name]:
+      ret[model_name] = (CarInterface, CarController, CarState)
+  return ret
+
+```
 
 ## Panda
 
