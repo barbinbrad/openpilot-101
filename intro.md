@@ -671,7 +671,7 @@ Before moving on to the next section, let's revisit the code for deciding whethe
 
 Now, that we understand how `rlog.bz2` and `qlog.bz2` files are created, we need to give some thought to how to break up the files into mananageble chunks. To do this, we use the function `rotate_if_needed` seen in the code above.
 
-The purpose of the `rotate_if_needed` function is to break log files up into 60-second chunks, called segments. Because all log files are named `rlog.bz2` or `qlog.bz2`, we need some means of differentiating between them. To accomplish this, we use folders with the following naming convention `${LOG_ROOT}/${ROUTE}--${SEGMENT}/`.
+The purpose of the `rotate_if_needed` function is to break log files up into 60-second chunks, called segments. Because all log files are named `rlog.bz2` or `qlog.bz2`, we need some means of differentiating between them. To accomplish this, we use folders with the following naming convention `<LOG_ROOT>/<ROUTE>--<SEGMENT>/`.
 
 `LOG_ROOT` is defined as:
 ```cpp
@@ -823,7 +823,7 @@ In the next section, we'll learn about the fingerprinting process, car interface
 
 So far, we've looked at the mechanics of how data is transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's start by defining what a fingerprint is.
 
-In openpilot, a *fingerprint* is a dictionary of CAN message IDs and data length (in bytes). Now suppose there are only two cars (XTRAIL and LEAF) in the universe. And suppose that each car can have two different possible fingerprints (depending on some manufacturing variability):
+In openpilot, a *fingerprint* is a dictionary of CAN message IDs and data length (in bytes). Now suppose there are only two cars (`XTRAIL` and `LEAF`) in the universe. And suppose that each car can have two different possible fingerprints (depending on some manufacturing variability):
 
 ```python
 # selfdrive/car/nissan/values.py
@@ -850,7 +850,7 @@ fingerprints = {
 
 In the fingerprint dictionaries, the key is the message ID, and the value is the data length. Suppose, for example, that we don't know what kind of car we have. So we start listening to CAN messages from the car, and we receive a message ID 2 with a length of 5 bytes. Given the information provided above, any of the four fingerprints could be valid. But suppose we receive a message ID 264 with length 3. Now we can eliminate both fingerprints from `CAR.XTRAIL` because niether of the fingerprints contains message ID 264. Similarly if we receive message 42 with length 8, we can eliminate the first `CAR.LEAF` fingerprint. If, after listening to many more messages, the second `CAR.LEAF` fingerprint has not been eliminated in this way, we can conclude that the car is a Nissan Leaf.
 
-We use this conclusion to load correct the CAN Dictionaries (DBCs), some important information about the geometry and featureset of the car (accessed through the interface's `get_params` method), and functions for reading and writing make/model-specific CAN messages (reading through carstate and writing through carcontroller). Every make of car contains a manufactuer-specific, `CarInterface`, `CarState`, and `CarController`, which can be found in the `selfdrive/car/<name>` directory. When needed, these functions provide differentiation between the vehicle's model.
+We use this conclusion to load correct the CAN Dictionaries (DBCs), some important information about the geometry and featureset of the car (accessed through the interface's `get_params` method), and functions for reading and writing make/model-specific CAN messages (reading through `selfdrive/car/<make>/carstate` and writing through `selfdrive/car/<make>/carcontroller`). Every make of car contains a manufactuer-specific, `CarInterface`, `CarState`, and `CarController`, which can be found in the `selfdrive/car/<make>` directory. When needed, these classes provide differentiation between the vehicle's model.
 
 Now that we have a basic grasp on fingerprinting, let's revisit the first lines of code we looked at. Recall that `CI.apply(CC)` transforms calculations for acceleration and steering angle into make/model specific CAN messages on each loop of the process:
 
@@ -873,7 +873,7 @@ CI, CP = get_car(can_sock, pm.sock['sendcan'])
 The `get_car` function is called on the intialization of the **controlsd** process. It passes the CAN Rx topic subscriber, `can_sock`, and the CAN Tx topic publisher, `sendcan`, which allows the `fingerprint` function to send and receive CAN messages. The goal of the `get_car` function is to dynamically `__import__` the correct `CarInterface`, `CarController`, and `CarState` from the `selfdrive/car` directory:
 
 ```python
-# imports from directory selfdrive/car/<name>/
+# imports from directory selfdrive/car/<make>/
 interface_names = _get_interface_names()
 interfaces = load_interfaces(interface_names)
 
