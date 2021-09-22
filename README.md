@@ -852,7 +852,7 @@ In the fingerprint dictionaries, the key is the message ID, and the value is the
 
 We use this conclusion to load correct the CAN Dictionaries (DBCs), some important information about the geometry and featureset of the car (accessed through the interface's `get_params` method), and functions for reading and writing make/model-specific CAN messages (reading through `selfdrive/car/<make>/carstate` and writing through `selfdrive/car/<make>/carcontroller`). Every make of car contains a manufactuer-specific, `CarInterface`, `CarState`, and `CarController`, which can be found in the `selfdrive/car/<make>` directory. When needed, these classes provide differentiation between the vehicle's model.
 
-Now that we have a basic grasp on fingerprinting, let's revisit the first lines of code we looked at. Recall that `CI.apply(CC)` transforms calculations for acceleration and steering angle into make/model specific CAN messages on each loop of the process:
+Now that we have a basic grasp on fingerprinting, let's revisit the first lines of code we looked at. Recall that the line `CI.apply(CC)` transforms calculations for acceleration and steering angle into make/model specific CAN messages on each loop of the process:
 
 ```python
 # selfdrive/controls/controlsd.py
@@ -870,7 +870,7 @@ The car interface `CI` is determined by the `get_car` function, which follows th
 CI, CP = get_car(can_sock, pm.sock['sendcan'])
 ```
 
-The `get_car` function is called on the intialization of the **controlsd** process. It passes the CAN Rx topic subscriber, `can_sock`, and the CAN Tx topic publisher, `sendcan`, which allows the `fingerprint` function to send and receive CAN messages. The goal of the `get_car` function is to dynamically `__import__` the correct `CarInterface`, `CarController`, and `CarState` from the `selfdrive/car` directory:
+The `get_car` function is called once on the intialization of the **controlsd** process. It passes the CAN Rx topic subscriber, `can_sock`, and the CAN Tx topic publisher, `sendcan`, which allows the `fingerprint` function to send and receive CAN messages. The goal of the `get_car` function is to dynamically `__import__` the correct `CarInterface`, `CarController`, and `CarState` from the `selfdrive/car` directories:
 
 ```python
 # imports from directory selfdrive/car/<make>/
@@ -891,7 +891,7 @@ def load_interfaces(brand_names):
 
 ```
 
-The `candidate` from the fingerprinting process is used to select the correct set of `CarInterface`, `CarController`, and `CarState`, a valid `candidate` could be `CAR.COROLLA`, for example:
+The `candidate` from the fingerprinting process is used to select the correct set of `CarInterface`, `CarController`, and `CarState` from the list created by load_interface. A valid `candidate` is not the key value dictionary. It is the label, like `CAR.COROLLA`, for example:
 
 ```python
 def get_car(logcan, sendcan):
