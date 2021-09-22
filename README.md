@@ -941,7 +941,7 @@ def get_params(candidate, fingerprint=gen_empty_fingerprint(), car_fw=[]):
    ...
 ```
 
-Recall that `can_sends = CI.apply(CC)`. The `apply` method is just a convenient wrapper for combining the car interface, `CI`, the car controller, `CC` and car state `CS` through the car controller's `update` method.
+Recall that `can_sends = CI.apply(CC)` turns calucaltions for acceleration and steering angle into CAN messages. But the `apply` method is just a convenient wrapper for combining the car interface, `CI`, the car controller, `CC` and car state `CS` through the car controller's `update` method.
 
 ```python
 # selfdrive/car/toyota/interface
@@ -977,7 +977,7 @@ struct Actuators {
 }
 ```
 
-The `enabled` determines whether we should override the acceleration and steering, and `frame` determines how often the message should be sent. The car controllers are quite different depending on the manufacturer and underlying hardware. But here is a simple example of a car controller creating gas and brake commands using the `actuators.accel` value:
+The `enabled` property determines whether we should override the acceleration and steering, and `frame` determines how often the message should be sent. The car controllers are quite different depending on the manufacturer and underlying hardware. But here is a simple example of a car controller creating gas and brake commands using the `actuators.accel` value:
 
 ```python
 # selfdrive/car/honda/carcontroller.py
@@ -1020,6 +1020,44 @@ class CarController:
 
 ```
 
+```python
+# selfdrive/car/honda/hondacan.py
+
+def create_brake_command(packer, apply_brake, pump_on, ...):
+  brakelights = apply_brake > 0
+  brake_rq = apply_brake > 0
+  pcm_fault_cmd = False
+
+  values = {
+    "COMPUTER_BRAKE": apply_brake,
+    "BRAKE_PUMP_REQUEST": pump_on,
+    "CRUISE_OVERRIDE": pcm_override,
+    "CRUISE_FAULT_CMD": pcm_fault_cmd,
+    "CRUISE_CANCEL_CMD": pcm_cancel_cmd,
+    "COMPUTER_BRAKE_REQUEST": brake_rq,
+    "SET_ME_1": 1,
+    "BRAKE_LIGHTS": brakelights,
+    ...
+  }
+  bus = get_pt_bus(car_fingerprint)
+  return packer.make_can_msg("BRAKE_COMMAND", bus, values, idx)
+```
+
+```python
+# opendbc/honda_odyssey_exl_2018_generated.dbc
+...
+BO_ 506 BRAKE_COMMAND: 8 ADAS
+ SG_ COMPUTER_BRAKE : 7|10@0+ (1,0) [0|1] "" EBCM
+ SG_ SET_ME_X00 : 13|5@0+ (1,0) [0|1] "" EBCM
+ SG_ BRAKE_PUMP_REQUEST : 8|1@0+ (1,0) [0|1] "" EBCM
+ SG_ SET_ME_X00_2 : 23|3@0+ (1,0) [0|1] "" EBCM
+ SG_ CRUISE_OVERRIDE : 20|1@0+ (1,0) [0|1] "" EBCM
+ SG_ SET_ME_X00_3 : 19|1@0+ (1,0) [0|1] "" EBCM
+ SG_ CRUISE_FAULT_CMD : 18|1@0+ (1,0) [0|1] "" EBCM
+ SG_ CRUISE_CANCEL_CMD : 17|1@0+ (1,0) [0|1] "" EBCM
+ SG_ COMPUTER_BRAKE_REQUEST : 16|1@0+ (1,0) [0|1] "" EBCM
+...
+```
 
 ## Panda
 
