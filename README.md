@@ -941,12 +941,91 @@ def get_params(candidate, fingerprint=gen_empty_fingerprint(), car_fw=[]):
    ...
 ```
 
+Recall that `can_sends = CI.apply(CC)`. The `apply` method is just a convenient wrapper for combining the car interface, `CI`, the car controller, `CC` and car state `CS` through the car controller's `update` method.
+
+```python
+# selfdrive/car/toyota/interface
+
+# pass in a car.CarControl
+# to be called @ 100hz
+class CarInterface:
+  ...
+  def apply(self, c):
+    can_sends = self.CC.update(c.enabled, self.CS, self.frame,
+      c.actuators, c.cruiseControl.cancel, ...)
+
+    self.frame += 1
+    return can_sends
+```
+
+The `actuators` object contains the pertinent information to be sent on the bus. Here's the cereal struct definition:
+
+```capnp
+struct Actuators {
+  # range from -1.0 - 1.0
+  steer @2: Float32;
+  steeringAngleDeg @3: Float32;
+
+  accel @4: Float32; # m/s^2
+  longControlState @5: LongControlState;
+
+  enum LongControlState @0xe40f3a917d908282{
+   off @0;
+   pid @1;
+   stopping @2;
+   starting @3;
+}
+```
+
+The `enabled` determines whether we should override the acceleration and steering, and `frame` determines how often the message should be sent. The car controllers are quite different depending on the manufacturer and underlying hardware. But here is a simple example of a car controller creating gas and brake commands using the `actuators.accel` value:
+
+```python
+# selfdrive/car/honda/carcontroller.py
+
+class CarController:
+  def update(self, enabled, CS, frame, actuators, ...):
+    ...
+    if enabled:
+      accel = actuators.accel
+      gas, brake = compute_gas_brake(actuators.accel, CS.out.vEgo, CS.CP.carFingerprint)
+    else:
+      accel = 0.0
+      gas, brake = 0.0, 0.0
+
+    can_sends = []
+
+    # apply brake hysteresis 
+    pre_limit_brake, self.braking, self.brake_steady = actuator_hystereses(brake, self.braking, self.brake_steady, CS.out.vEgo, CS.CP.carFingerprint)
+
+    # wind brake from air resistance decel at high speed
+    wind_brake = interp(CS.out.vEgo, [0.0, 2.3, 35.0], [0.001, 0.002, 0.15])
+
+    # send at 50Hz
+    if (frame % 2) == 0:
+      idx = frame // 2
+      # decide whether to brake, and remember it
+      apply_brake = clip(self.brake_last - wind_brake, 0.0, 1.0)
+      can_sends.append(hondacan.create_brake_command(self.packer, apply_brake,...))
+      self.apply_brake_last = apply_brake
+      
+      if CS.CP.enableGasInterceptor:
+        # way too aggressive at low speed without this
+        gas_mult = interp(CS.out.vEgo, [0., 10.], [0.4, 1.0])
+        apply_gas = clip(gas_mult * gas, 0., 1.)
+        can_sends.append(create_gas_command(self.packer, apply_gas, idx))
+
+    ...
+
+    return can_sends
+
+```
+
 
 ## Panda
 
 ## Hardware
 
-## Kalman Filters & PID Loops
+## Kalman Filters, PID Loops & MPC
 
 ## Video
 
