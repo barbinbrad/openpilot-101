@@ -823,7 +823,7 @@ In the next section, we'll learn about the fingerprinting process, car interface
 
 So far, we've looked at the mechanics of how data is transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's start by defining what a fingerprint is.
 
-In openpilot, a *fingerprint* is a dictionary of CAN message IDs and data length (in bytes). Now suppose there are only two cars (`XTRAIL` and `LEAF`) in the universe. And suppose that each car can have two different possible fingerprints (depending on some manufacturing variability):
+In openpilot, a *fingerprint* is a dictionary of CAN message IDs and data length (in bytes). Now suppose there are only two cars, `XTRAIL` and `LEAF`, in the universe. And suppose that each car can have two different possible fingerprints, depending on some manufacturing variability. We then have four possible fingerprints:
 
 ```python
 # selfdrive/car/nissan/values.py
