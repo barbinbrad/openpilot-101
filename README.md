@@ -901,7 +901,7 @@ def load_interfaces(brand_names):
 
 ```
 
-The `candidate` from the fingerprinting process is used to select the correct set of `CarInterface`, `CarController`, and `CarState` from the list created by load_interface. A valid `candidate` is not the key value dictionary. It is the label, like `CAR.COROLLA`, for example:
+The `candidate` from the fingerprinting process is used to select the correct set of `CarInterface`, `CarController`, and `CarState` from the list created by `load_interface`. A valid `candidate` is not the key/value dictionary. It is the higher-level key, like `CAR.COROLLA`, for example:
 
 ```python
 def get_car(logcan, sendcan):
@@ -913,7 +913,7 @@ def get_car(logcan, sendcan):
   return CarInterface(car_params, CarController, CarState), car_params
 ```
 
-The `get_params` function takes a fingerprint as an input and returns make and model-specific parameters about the car, `CP`. Here is the `get_params` function for all Toyotas. Notice how some things like the `SafetyModel` are the same across all models, while other paramaters like the `safetyParm` and `steerRatio` differ across models, depending on the `candidate`:
+The `CarInterface.get_params` function takes a fingerprint as an input and returns make and model-specific parameters about the car, `CP`. Here is the `get_params` function for all Toyotas. Notice how some things like the `SafetyModel` are the same across all models, while other paramaters like the `safetyParam` and `steerRatio` differ across models, depending on the `candidate`:
 
 
 ```python
@@ -951,7 +951,7 @@ def get_params(candidate, fingerprint=gen_empty_fingerprint(), car_fw=[]):
    ...
 ```
 
-Recall that `can_sends = CI.apply(CC)` turns calucaltions for acceleration and steering angle into CAN messages. But the `apply` method is just a convenient wrapper for combining the car interface, `CI`, the car controller, `CC` and car state `CS` through the car controller's `update` method.
+Now that we've loaded the make's interface, and stored the parameters of the model, recall that `can_sends = CI.apply(CC)` turns calucaltions for acceleration and steering angle into model-specific CAN messages. But the `apply` method is just a convenient wrapper for combining the car interface, `CI`, the car controller, `CC` and car state `CS` through the car controller's `update` method.
 
 ```python
 # selfdrive/car/toyota/interface
@@ -967,7 +967,7 @@ class CarInterface:
     return can_sends
 ```
 
-The `frame` property is used to keep track of time, and the `actuators` argument contains the pertinent information to be sent on the bus. Here's the cereal struct definition for `actuators`:
+The `frame` property is used to keep track of time, and the `actuators` argument contains the pertinent information about steering and acceleration. Here's the cereal struct definition for `actuators`:
 
 ```capnp
 struct Actuators {
@@ -993,6 +993,7 @@ The `enabled` argument determines whether we should override the acceleration an
 
 class CarController:
   def update(self, enabled, CS, frame, actuators, ...):
+    P = self.params
     ...
     if enabled:
       gas, brake = compute_gas_brake(actuators.accel, CS.out.vEgo, CS.CP.carFingerprint)
@@ -1013,6 +1014,7 @@ class CarController:
       idx = frame // 2
       # decide whether to brake, and remember it
       apply_brake = clip(self.brake_last - wind_brake, 0.0, 1.0)
+      apply_brake = int(clip(apply_brake * P.BRAKE_MAX, 0, P.BRAKE_MAX - 1))
       can_sends.append(hondacan.create_brake_command(self.packer, apply_brake,...))
       self.apply_brake_last = apply_brake
       
@@ -1028,6 +1030,9 @@ class CarController:
 
 ```
 
+It's important to understand that the acceleration and steering values require post-processing for different makes and models. For example, Hondas have separate messages for gas and brake, while Toyotas have a single acceleration message.
+
+The job of `selfdrive/car/<make>/carcontroller.py` is to translate the setpoints into manufacturer specific CAN messages. It is common for custom CAN messages to use a library like `selfdrive/car/honda/hondacan.py` to create these messages.
 
 ```python
 # selfdrive/car/honda/hondacan.py
@@ -1052,6 +1057,8 @@ def create_brake_command(packer, apply_brake, pump_on, ...):
   bus = get_pt_bus(car_fingerprint)
   return packer.make_can_msg("BRAKE_COMMAND", bus, values, idx)
 ```
+
+
 
 ```python
 # opendbc/honda_odyssey_exl_2018_generated.dbc
