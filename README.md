@@ -823,7 +823,9 @@ In the next section, we'll learn about the fingerprinting process, car interface
 
 So far, we've looked at the mechanics of how data is transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's start by defining what a fingerprint is.
 
-In openpilot, a *fingerprint* is a dictionary of CAN message IDs and data length (in bytes). Now suppose there are only two cars, `XTRAIL` and `LEAF`, in the universe. And suppose that each car can have two different possible fingerprints, depending on some manufacturing variability. We then have four possible fingerprints:
+In openpilot, a *fingerprint* is a dictionary of CAN message IDs and data length (in bytes). A fingerprint is used to identify a car based on the set of CAN messages sent over a few seconds, while ignoring the content of the messages. 
+
+Now suppose there are only two cars, `XTRAIL` and `LEAF`, in the universe. And suppose that each car can have two different possible fingerprints, depending on some manufacturing variability (like the model year). Two cars with two fingerprints gives us four possible fingerprints:
 
 ```python
 # selfdrive/car/nissan/values.py
@@ -848,9 +850,15 @@ fingerprints = {
 }
 ```
 
-In the fingerprint dictionaries, the key is the message ID, and the value is the data length. Suppose, for example, that we don't know what kind of car we have. So we start listening to CAN messages from the car, and we receive a message ID 2 with a length of 5 bytes. Given the information provided above, any of the four fingerprints could be valid. But suppose we receive a message ID 264 with length 3. Now we can eliminate both fingerprints from `CAR.XTRAIL` because niether of the fingerprints contains message ID 264. Similarly if we receive message 42 with length 8, we can eliminate the first `CAR.LEAF` fingerprint. If, after listening to many more messages, the second `CAR.LEAF` fingerprint has not been eliminated in this way, we can conclude that the car is a Nissan Leaf.
+The fingerprint values are a set of key/value pairs where the key is the message ID, and the value is the data length. Each time openpilot starts, we don't know what kind of car we have. So we start listening to CAN messages from the car.
 
-We use this conclusion to load correct the CAN Dictionaries (DBCs), some important information about the geometry and featureset of the car (accessed through the interface's `get_params` method), and functions for reading and writing make/model-specific CAN messages (reading through `selfdrive/car/<make>/carstate` and writing through `selfdrive/car/<make>/carcontroller`). Every make of car contains a manufactuer-specific, `CarInterface`, `CarState`, and `CarController`, which can be found in the `selfdrive/car/<make>` directory. When needed, these classes provide differentiation between the vehicle's model.
+For the sake of example, suppose that we receive a message ID 2 with a length of 5 bytes. Given the information provided above, any of the four fingerprints could be valid. But suppose we receive a message ID 264 with length 3. Now we can eliminate both fingerprints from `CAR.XTRAIL` because niether of the fingerprints contains message ID 264. Similarly if we receive message 42 with length 8, we can eliminate the first `CAR.LEAF` fingerprint. If, after listening to many more messages, the second `CAR.LEAF` fingerprint has not been eliminated in this way, we can conclude that the car is a Nissan Leaf.
+
+We use this conclusion to load correct the CAN Dictionaries (DBCs), important information about the geometry and featureset of the car, and functions for reading and writing make/model-specific CAN messages. 
+
+Reading the CAN bus is done through `selfdrive/car/<make>/carstate` and writing to the CAN bus is done through `selfdrive/car/<make>/carcontroller`. 
+
+Every make of car contains a manufactuer-specific, `CarInterface`, `CarState`, and `CarController`, which can be found in the `selfdrive/car/<make>` directory. When needed, these classes provide differentiation between the vehicle's model.
 
 Now that we have a basic grasp on fingerprinting, let's revisit the first lines of code we looked at. Recall that the line `CI.apply(CC)` transforms calculations for acceleration and steering angle into make/model specific CAN messages on each loop of the process:
 
@@ -870,7 +878,9 @@ The car interface `CI` is determined by the `get_car` function, which follows th
 CI, CP = get_car(can_sock, pm.sock['sendcan'])
 ```
 
-The `get_car` function is called once on the intialization of the **controlsd** process. It passes the CAN Rx topic subscriber, `can_sock`, and the CAN Tx topic publisher, `sendcan`, which allows the `fingerprint` function to send and receive CAN messages. The goal of the `get_car` function is to dynamically `__import__` the correct `CarInterface`, `CarController`, and `CarState` from the `selfdrive/car` directories:
+The `get_car` function is called once on the intialization of the **controlsd** process. It passes the CAN Rx topic subscriber, `can_sock`, and the CAN Tx topic publisher, `sendcan`, which allows the `fingerprint` function to send and receive CAN messages. 
+
+The goal of the `get_car` function is to dynamically `__import__` the correct `CarInterface`, `CarController`, and `CarState` from the `selfdrive/car` directories:
 
 ```python
 # imports from directory selfdrive/car/<make>/
@@ -903,7 +913,7 @@ def get_car(logcan, sendcan):
   return CarInterface(car_params, CarController, CarState), car_params
 ```
 
-The `get_params` function takes a fingerprint as an input and returns make and model-specific parameters about the car, `CP`. Here is the `get_params` function for all Toyotas. Notice how some things like the `SafetyModel` are the same across all models, while other paramaters like the `steerRatio` differ across models, depending on the `candidate`:
+The `get_params` function takes a fingerprint as an input and returns make and model-specific parameters about the car, `CP`. Here is the `get_params` function for all Toyotas. Notice how some things like the `SafetyModel` are the same across all models, while other paramaters like the `safetyParm` and `steerRatio` differ across models, depending on the `candidate`:
 
 
 ```python
@@ -951,14 +961,13 @@ Recall that `can_sends = CI.apply(CC)` turns calucaltions for acceleration and s
 class CarInterface:
   ...
   def apply(self, c):
-    can_sends = self.CC.update(c.enabled, self.CS, self.frame,
-      c.actuators, c.cruiseControl.cancel, ...)
+    can_sends = self.CC.update(c.enabled, self.CS, self.frame, c.actuators, ...)
 
     self.frame += 1
     return can_sends
 ```
 
-The `actuators` object contains the pertinent information to be sent on the bus. Here's the cereal struct definition:
+The `frame` property is used to keep track of time, and the `actuators` argument contains the pertinent information to be sent on the bus. Here's the cereal struct definition for `actuators`:
 
 ```capnp
 struct Actuators {
@@ -977,7 +986,7 @@ struct Actuators {
 }
 ```
 
-The `enabled` property determines whether we should override the acceleration and steering, and `frame` determines how often the message should be sent. The car controllers are quite different depending on the manufacturer and underlying hardware. But here is a simple example of a car controller creating gas and brake commands using the `actuators.accel` value:
+The `enabled` argument determines whether we should override the acceleration and steering, and `frame` determines how often the message should be sent. The car controllers are quite different depending on the manufacturer and underlying hardware, but here is a simple example of a car controller creating gas and brake CAN messages using the `actuators.accel` value:
 
 ```python
 # selfdrive/car/honda/carcontroller.py
@@ -986,7 +995,6 @@ class CarController:
   def update(self, enabled, CS, frame, actuators, ...):
     ...
     if enabled:
-      accel = actuators.accel
       gas, brake = compute_gas_brake(actuators.accel, CS.out.vEgo, CS.CP.carFingerprint)
     else:
       accel = 0.0
@@ -1000,7 +1008,7 @@ class CarController:
     # wind brake from air resistance decel at high speed
     wind_brake = interp(CS.out.vEgo, [0.0, 2.3, 35.0], [0.001, 0.002, 0.15])
 
-    # send at 50Hz
+    # send at 50Hz instead of 100Hz
     if (frame % 2) == 0:
       idx = frame // 2
       # decide whether to brake, and remember it
@@ -1019,6 +1027,7 @@ class CarController:
     return can_sends
 
 ```
+
 
 ```python
 # selfdrive/car/honda/hondacan.py
@@ -1039,6 +1048,7 @@ def create_brake_command(packer, apply_brake, pump_on, ...):
     "BRAKE_LIGHTS": brakelights,
     ...
   }
+
   bus = get_pt_bus(car_fingerprint)
   return packer.make_can_msg("BRAKE_COMMAND", bus, values, idx)
 ```
