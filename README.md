@@ -852,7 +852,7 @@ fingerprints = {
 
 The fingerprint values are a set of key/value pairs where the key is the message ID, and the value is the data length. Each time openpilot starts, we don't know what kind of car we have. So we start listening to CAN messages from the car.
 
-For the sake of example, suppose that we receive a message ID 2 with a length of 5 bytes. Given the information provided above, any of the four fingerprints could be valid. But suppose we receive a message ID 264 with length 3. Now we can eliminate both fingerprints from `CAR.XTRAIL` because niether of the fingerprints contains message ID 264. Similarly if we receive message 42 with length 8, we can eliminate the first `CAR.LEAF` fingerprint. If, after listening to many more messages, the second `CAR.LEAF` fingerprint has not been eliminated in this way, we can conclude that the car is a Nissan Leaf.
+For the sake of example, suppose that we receive a message ID 2 with a length of 5 bytes. Given the information provided above, any of the four fingerprints could be valid. Now suppose that we receive a message ID 264 with length 3. Now we can eliminate both fingerprints from `CAR.XTRAIL` because niether of the fingerprints contains message ID 264. Similarly if we receive message 42 with length 8, we can eliminate the first `CAR.LEAF` fingerprint. If, after listening to many more messages, the second `CAR.LEAF` fingerprint has not been eliminated in this way, we can conclude that the car is a Nissan Leaf.
 
 We use this conclusion to load correct the CAN Dictionaries (DBCs), important information about the geometry and featureset of the car, and functions for reading and writing make/model-specific CAN messages. 
 
