@@ -1,11 +1,12 @@
+This repo has been moved to: [https://github.com/commaai/openpilot/wiki/Introduction-to-openpilot](https://github.com/commaai/openpilot/wiki/Introduction-to-openpilot)
+
 # Intro to openpilot
 
 **openpilot** is a software that produces serial messages (CAN Messages) to change the acceleration and steering angle of a car given some camera streams, existing serial messages from the car, and sensor data. In addition to the real-time messages, openpilot produces logs that are used to train machine learning models at a later date.
 
 The goal of this introduction is to introduce you to the moving pieces of openpilot, and help you understand how they work together to create these outputs.  
 
-![conceptual_schematic](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/conceptual_schematic.png)
-
+![conceptual_schematic](https://user-images.githubusercontent.com/1314752/136187022-13181eeb-cb06-44dd-a85e-31c0f541c117.png)
 
 ## CAN Messages
 
@@ -75,7 +76,7 @@ So far, we've mentioned two processes: **controlsd** and **boardd**. This sectio
 
 In the openpilot process map below, processes are represented by nodes, and the topics that they publish-to and subscribe-to are represented by the arrows between the nodes. A process is a publisher of a topic if the arrow points away from the process and is a subscriber if the arrow points toward the process. So, for example, the **thermald** proccess publishes `deviceState` and subscribes to `managerState`, `pandaState`, and `gpsLocationExternal`.
 
-![pub_sub](https://raw.githubusercontent.com/barbinbrad/openpilot-101/master/pub_sub.png)
+![pub_sub](https://user-images.githubusercontent.com/1314752/136187018-a70e4990-0ae2-41f3-b4b5-597008eca220.png)
 
 In the cereal pub-sub framework, any process can subscribe to any topic, but each topic can only have one publisher. Messages are stored and exchanged in [Cap'n Proto](https://capnproto.org/) format, an extremely fast and lightweight way to send objects (like JSON) as binary (like ProtoBufs). The structure of every message is contained in the [log.capnp](https://github.com/commaai/cereal/blob/master/log.capnp) file in the cereal sub-module.
 
@@ -819,7 +820,7 @@ This code is called when the **boardd** process starts. It waits for the `CarPar
 In the next section, we'll learn about the fingerprinting process, car interfaces, and manufacturer-specific safety hooks.
 
 
-## Fingerprints, Interfaces, and Safety Hooks
+## Fingerprints & Interfaces
 
 So far, we've looked at the mechanics of how data is transported in openpilot. In the next few sections, we'll try to understand the interfaces required to support self-driving in hundreds of different cars. To do that, let's start by defining what a fingerprint is.
 
@@ -951,7 +952,7 @@ def get_params(candidate, fingerprint=gen_empty_fingerprint(), car_fw=[]):
    ...
 ```
 
-Now that we've loaded the make's interface, and stored the parameters of the model, recall that `can_sends = CI.apply(CC)` turns calucaltions for acceleration and steering angle into model-specific CAN messages. But the `apply` method is just a convenient wrapper for combining the car interface, `CI`, the car controller, `CC` and car state `CS` through the car controller's `update` method.
+Now that we've loaded the make's interface, and stored the parameters of the model, recall that `can_sends = CI.apply(CC)` turns calculations for acceleration and steering angle into model-specific CAN messages. But the `apply` method is just a convenient wrapper for combining the car interface, `CI`, the car controller, `CC` and car state `CS` through the car controller's `update` method.
 
 ```python
 # selfdrive/car/toyota/interface
@@ -1032,10 +1033,19 @@ class CarController:
 
 It's important to understand that the acceleration and steering values require post-processing for different makes and models. For example, Hondas have separate messages for gas and brake, while Toyotas have a single acceleration message.
 
-The job of `selfdrive/car/<make>/carcontroller.py` is to translate the setpoints into manufacturer specific CAN messages. It is common for custom CAN messages to use a library like `selfdrive/car/honda/hondacan.py` to create these messages.
+The job of `selfdrive/car/<make>/carcontroller.py` is to translate the setpoints into manufacturer specific CAN messages. It is common for the `carcontroller` to create custom CAN messages to using an additional library like `selfdrive/car/honda/hondacan.py`, which creates manufacturer specific CAN messages using the `packer` library.
 
 ```python
 # selfdrive/car/honda/hondacan.py
+
+# CAN bus layout with relay
+# 0 = ACC-CAN - radar side
+# 1 = F-CAN B - powertrain
+# 2 = ACC-CAN - camera side
+# 3 = F-CAN A - OBDII port
+
+def get_pt_bus(car_fingerprint):
+  return 1 if car_fingerprint in HONDA_BOSCH else 0
 
 def create_brake_command(packer, apply_brake, pump_on, ...):
   brakelights = apply_brake > 0
@@ -1058,7 +1068,9 @@ def create_brake_command(packer, apply_brake, pump_on, ...):
   return packer.make_can_msg("BRAKE_COMMAND", bus, values, idx)
 ```
 
+The `packer` function is attached to the car controller and passed as an argument. It is intialized by with the name of the DBC file from [opendbc](https://github.com/commaai/opendbc), a set of CAN dictionaries.
 
+The job of the `packer` is to `make_can_msg`. Here is the DBC file excerpt from the message above.
 
 ```python
 # opendbc/honda_odyssey_exl_2018_generated.dbc
@@ -1076,6 +1088,10 @@ BO_ 506 BRAKE_COMMAND: 8 ADAS
 ...
 ```
 
+To learn more about the DBC file protocol, check out [@energee's excellent article](https://medium.com/@energee/what-are-dbc-files-469a3bf9b04b).
+
+## Safety Hooks
+
 ## Panda
 
 ## Hardware
@@ -1087,5 +1103,5 @@ BO_ 506 BRAKE_COMMAND: 8 ADAS
 ## Machine Learning
 
 ## Operating System
- 
- ## APIs
+
+## APIs
